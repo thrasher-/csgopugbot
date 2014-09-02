@@ -7,6 +7,8 @@ import "strings"
 import "strconv"
 import "bufio"
 
+//testing commit
+
 type Config struct {
 	IRCServer, Nickname, Username string
 }
