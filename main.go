@@ -6,6 +6,8 @@ import "time"
 import "strings"
 import "strconv"
 
+//testing commit
+
 type Config struct {
 	IRCServer, Nickname, Username, Channel string
 }
