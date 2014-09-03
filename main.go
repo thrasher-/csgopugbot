@@ -5,6 +5,8 @@ import (
 	"time"
 )
 
+// test commit
+
 func main() {
 	irc := IRC{"irc.freenode.net:6667", "PugBotTest", "0 0 0 0", "#PugBotTest", nil, false}
 
