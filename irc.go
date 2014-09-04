@@ -4,13 +4,17 @@ import (
 	"fmt"
 	"net"
 	"strings"
+	"time"
 	"strconv"
 )
 
 type IRC struct {
-	server, nickname, username, channel string
+	server, password, nickname, username, channel string
 	testconn net.Conn
 	connected bool
+
+	pingTime time.Time
+	pingSent, pongReceived, joinedChannel bool
 }
 
 func (i *IRC) SendToChannel(data string, v ...interface{}) {
@@ -38,6 +42,37 @@ func (i *IRC) WriteData(data string, v ...interface{}) {
 
 	buffer = buffer[:len(buffer)-2]
 	fmt.Printf("Sending: %s\n", buffer)
+}
+
+func (i *IRC) PingLoop() {
+	for {
+		if (!i.connected) {
+			fmt.Println("Exiting ping loop routine")
+			break
+		}
+
+		if (!i.joinedChannel) {
+			time.Sleep(time.Second * 30)
+			continue
+		}
+
+		if (!i.pingSent) {
+			i.pingTime = time.Now()
+			i.WriteData("PING :CHECKPNG\r\n")
+			i.pingSent = true
+		} else {
+			if (time.Since(i.pingTime) / time.Second >= 10 && !i.pongReceived) {
+				fmt.Println("IRC connection has timed out.")
+				i.connected = false
+				break
+			} else {
+				fmt.Println("Received pong to our ping.")
+				i.pingSent = false
+				i.pongReceived = false
+				time.Sleep(time.Minute)
+			}
+		}
+	}
 }
 
 func (i *IRC) CloseConnection() {
@@ -100,14 +135,15 @@ func (i *IRC) ConnectToServer() bool {
 func (i *IRC) HandleIRCEvents(data string) {
 	if (strings.Contains(data, "001")) {
 		i.WriteData("JOIN %s\r\n", i.channel)
+		i.joinedChannel = true
 	} else if (strings.Contains(data, "433")) {
 		i.nickname = i.nickname + "`"
 		i.WriteData("NICK %s\r\n", i.nickname)
 	} else if (strings.Contains(data, "PING")) {
 		s := strings.Split(data, " ")[1]
 		i.WriteData("PONG %s\r\n", s)
-	} else if (strings.Contains(data, "SECRETTEST")) {
-		i.SendToChannel("test123\r\n");
+	} else if (strings.Contains(data, "CHECKPNG")) {
+		i.pongReceived = true
 	}
 	return;
 }
