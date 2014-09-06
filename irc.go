@@ -18,17 +18,16 @@ type IRC struct {
 }
 
 func (i *IRC) SendToChannel(data string, v ...interface{}) {
-	s := fmt.Sprintf("PRIVMSG %s :%s", i.channel, data)
-	buffer := fmt.Sprintf(s, v...)
-	_, err := i.testconn.Write([]byte(buffer))
+	buffer := fmt.Sprintf(data, v...)
+	s := fmt.Sprintf("PRIVMSG %s :%s\r\n", i.channel, buffer)
+	_, err := i.testconn.Write([]byte(s))
 
 	if err != nil {
 		fmt.Println("Error, unable to send data.")
 		i.connected = false
 	}
 
-	data = data[:len(data)-2]
-	fmt.Printf("Sending channel message: %s\n", data)
+	fmt.Printf("Sending channel message: %s\n", buffer)
 }
 
 func (i *IRC) WriteData(data string, v ...interface{}) {
@@ -40,7 +39,7 @@ func (i *IRC) WriteData(data string, v ...interface{}) {
 		i.connected = false
 	}
 
-	buffer = buffer[:len(buffer)-2]
+	buffer = strings.Trim(buffer, "\r\n")
 	fmt.Printf("Sending: %s\n", buffer)
 }
 
@@ -58,7 +57,7 @@ func (i *IRC) PingLoop() {
 
 		if (!i.pingSent) {
 			i.pingTime = time.Now()
-			i.WriteData("PING :CHECKPNG\r\n")
+			i.WriteData("PING :TIMEOUTCHECK\r\n")
 			i.pingSent = true
 		} else {
 			if (time.Since(i.pingTime) / time.Second >= 10 && !i.pongReceived) {
@@ -94,20 +93,16 @@ func (i *IRC) RecvData() {
 
 		s := string(readBuffer);
 
-		if strings.Contains(completedBuffer, "\r") || strings.Contains(completedBuffer, "\n") {
+		if strings.Contains(completedBuffer, "\r") {
 			break;
 		} else {
 			completedBuffer += s
 		}
-
-		if err != nil {
-			fmt.Println("Error, unable to recv data.")
-		}
 	}
-		
-	fmt.Printf("Received: %s\n", completedBuffer);
-	i.HandleIRCEvents(completedBuffer)
-}
+	
+	completedBuffer = strings.Trim(completedBuffer, "\r\n")
+	fmt.Printf("Received: %s\n", completedBuffer)
+	i.HandleIRCEvents(strings.Split(completedBuffer, " "))}
 
 func (i *IRC) ConnectToServer() bool { 
 	ports := strings.Split(i.server, ":")[1]
@@ -132,18 +127,43 @@ func (i *IRC) ConnectToServer() bool {
 	return true
 }
 
-func (i *IRC) HandleIRCEvents(data string) {
-	if (strings.Contains(data, "001")) {
+func (i *IRC) HandleIRCEvents(ircBuffer []string) {
+	if (ircBuffer[1] == "001") {
 		i.WriteData("JOIN %s\r\n", i.channel)
 		i.joinedChannel = true
-	} else if (strings.Contains(data, "433")) {
+	} else if (ircBuffer[1] == "433") {
 		i.nickname = i.nickname + "`"
 		i.WriteData("NICK %s\r\n", i.nickname)
-	} else if (strings.Contains(data, "PING")) {
-		s := strings.Split(data, " ")[1]
-		i.WriteData("PONG %s\r\n", s)
-	} else if (strings.Contains(data, "CHECKPNG")) {
+	} else if (ircBuffer[0] == "PING") {
+		s := strings.Join(ircBuffer, " ")
+		i.WriteData("%s\r\n", strings.Replace(s, "PING", "PONG", 1))
+	} else if (ircBuffer[1] == "PONG") && (ircBuffer[3] == ":TIMEOUTCHECK") {
 		i.pongReceived = true
+	} else if (ircBuffer[1] == "PRIVMSG") {
+		nickname := strings.Split(ircBuffer[0], "!")[0]
+		nickname = strings.TrimPrefix(nickname, ":")
+		host := strings.Split(ircBuffer[0], "@")[1]
+		destination := ircBuffer[2]
+		message := strings.Join(ircBuffer[3:], " ")
+		message = strings.TrimPrefix(message, ":")
+		fmt.Printf("Nickname: %s Host: %s Destination: %s Message: %s", nickname, host, destination, message)
+
+		if (strings.Contains(message, "!pug") && strings.Contains(ircBuffer[3], "!pug")) {
+			if (len(ircBuffer) == 5) {
+				s := ircBuffer[4];
+				i.SendToChannel("A PUG has been started on map %s, type !join to join the pug", s)
+			} else {
+				i.SendToChannel("A PUG has been started, type !join to join the pug")
+			}
+		} else if (message == "!join") {
+			i.SendToChannel("%s has joined the pug!", nickname)
+		} else if (message == "!cancelpug") {
+			i.SendToChannel("The PUG has been cancelled, type !pug to create one")
+		} else if (message == "!stats") {
+			i.SendToChannel("Stats for player %s can be visited here: http://www.cs-stats.com/player/xxxxxx", nickname)
+		} else if (message == "!status") {
+			i.SendToChannel("Meow")
+		}
 	}
 	return;
 }
