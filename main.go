@@ -6,6 +6,7 @@ import (
 )
 
 func main() {
+
 	irc := IRC{
 		"irc.freenode.net:6667", //server
 		"", //password
@@ -18,7 +19,10 @@ func main() {
 		false, //ping sent
 		false, //pong received 
 		false, //joined channel
+		PUG{},
 	}
+
+	irc.pug.SetAllowedMaps([]string{"de_dust2", "de_inferno", "de_nuke", "de_train", "de_mirage", "de_overpass", "de_cobblestone"})
 
 	for {
 		if (!irc.connected) {
