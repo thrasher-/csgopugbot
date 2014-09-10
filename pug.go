@@ -25,7 +25,7 @@ func (p *PUG) PugActive() bool {
 }
 
 func (p *PUG) JoinPug(player string) bool {
-	if (!p.pugStarted || len(p.players) >= 10) {
+	if (!p.pugStarted || len(p.players) >= MAX_PLAYERS) {
 		return false
 	}
 

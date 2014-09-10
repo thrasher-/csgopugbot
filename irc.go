@@ -14,18 +14,19 @@ type Message struct {
 
 type IRC struct {
 	server, password, nickname, username, channel string
-	testconn net.Conn
+	socket net.Conn
 	connected bool
 
 	pingTime time.Time
 	pingSent, pongReceived, joinedChannel bool
 	pug PUG
+	cs CS
 }
 
 func (irc *IRC) SendToChannel(data string, v ...interface{}) {
 	buffer := fmt.Sprintf(data, v...)
 	s := fmt.Sprintf("PRIVMSG %s :%s\r\n", irc.channel, buffer)
-	_, err := irc.testconn.Write([]byte(s))
+	_, err := irc.socket.Write([]byte(s))
 
 	if err != nil {
 		fmt.Println("Error, unable to send data.")
@@ -37,7 +38,7 @@ func (irc *IRC) SendToChannel(data string, v ...interface{}) {
 
 func (irc *IRC) WriteData(data string, v ...interface{}) {
 	buffer := fmt.Sprintf(data, v...)
-	_, err := irc.testconn.Write([]byte(buffer))
+	_, err := irc.socket.Write([]byte(buffer))
 
 	if err != nil {
 		fmt.Println("Error, unable to send data.")
@@ -80,7 +81,7 @@ func (irc *IRC) PingLoop() {
 }
 
 func (irc *IRC) CloseConnection() {
-	irc.testconn.Close();
+	irc.socket.Close();
 }
 
 func (irc *IRC) RecvData() {
@@ -88,7 +89,7 @@ func (irc *IRC) RecvData() {
 
 	for {
 		readBuffer := make([]byte, 1);
-		_, err := irc.testconn.Read(readBuffer);
+		_, err := irc.socket.Read(readBuffer);
 
 		if err != nil {
 			fmt.Println("Error, unable to receive data.")
@@ -121,7 +122,7 @@ func (irc *IRC) ConnectToServer() bool {
 	}
 
 	fmt.Printf("Attempting connection to %s..\n", irc.server)
-	irc.testconn, err = net.Dial("tcp", irc.server)
+	irc.socket, err = net.Dial("tcp", irc.server)
 	
 	if err != nil {
 		fmt.Println("Error, unable to connect.")
@@ -136,9 +137,13 @@ func (irc *IRC) HandleIRCEvents(ircBuffer []string) {
 	if (ircBuffer[1] == "001") {
 		irc.WriteData("JOIN %s\r\n", irc.channel)
 		irc.joinedChannel = true
+		irc.WriteData("USERHOST %s\r\n", irc.nickname)
 	} else if (ircBuffer[1] == "433") {
 		irc.nickname = irc.nickname + "`"
 		irc.WriteData("NICK %s\r\n", irc.nickname)
+	} else if (ircBuffer[1] == "302") {
+		irc.cs.externalIP = strings.Split(ircBuffer[3], "@")[1]
+		fmt.Printf("Received external IP: %s\n", irc.cs.externalIP)
 	} else if (ircBuffer[0] == "PING") {
 		s := strings.Join(ircBuffer, " ")
 		irc.WriteData("%s\r\n", strings.Replace(s, "PING", "PONG", 1))
@@ -178,6 +183,16 @@ func (irc *IRC) HandleIRCEvents(ircBuffer []string) {
 				irc.SendToChannel("A PUG has not been started, type !pug <map> to start a new one.")
 				return;
 			}
+		} else if (message == "!leave") {
+			if (irc.pug.PugStarted()) {
+				if (irc.pug.LeavePug(nickname)) {
+					irc.SendToChannel("%s has left the pug [%d/10]", nickname, irc.pug.GetPlayerCount())
+					return;
+				}
+			} else {
+				irc.SendToChannel("A PUG has not been started, type !pug <map> to start a new one.")
+				return;
+			}
 		} else if (message == "!cancelpug") {
 			if (irc.pug.PugStarted()) {
 				if (nickname == irc.pug.GetAdmin()) {
@@ -196,6 +211,11 @@ func (irc *IRC) HandleIRCEvents(ircBuffer []string) {
 			if (irc.pug.PugStarted()) {
 				irc.SendToChannel("Player list: %s [%d/10]", strings.Join(irc.pug.GetPlayers(), " "), irc.pug.GetPlayerCount())
 				return;
+			}
+		} else if (strings.Contains(message, "!say") && strings.Contains(ircBuffer[3], "!say")) {
+			if (irc.cs.rconConnected) {
+				s := strings.Join(ircBuffer[4:], " ")
+				irc.cs.rc.WriteData("say [IRC] %s", s)
 			}
 		}
 	}
