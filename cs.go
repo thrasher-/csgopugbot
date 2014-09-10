@@ -23,7 +23,8 @@ const (
 
 const readBufferSize = 4110
 
-// thanks to https://github.com/james4k/ (james4k) for some of the RCON functions
+// RCON Protocol specs can be found here: https://developer.valvesoftware.com/wiki/Source_RCON_Protocol
+// Thanks to https://github.com/james4k/ (james4k) for some of the RCON functions
 
 type CS struct {
 	listenAddress, rconPassword, localIP, externalIP, csServer string
@@ -250,21 +251,20 @@ func (cs *CS) ConnectToRcon() bool  {
 }
 
 func (cs *CS) RecvData() {
-  	for {
-    	buffer := make([]byte, 1024)
-    	rlen, _, err := cs.SrvSocket.ReadFromUDP(buffer)
-    
-    	if err != nil {
-     	 	fmt.Printf("Unable to read data from UDP socket. Error %s", err)
-     	 	break;
-   	 	}
+	for {
+		buffer := make([]byte, 1024)
+		rlen, _, err := cs.SrvSocket.ReadFromUDP(buffer)
 
-   	 	s := string(buffer);
-   	 	s = s[5:rlen-2]
-   	 	fmt.Printf("Received %d bytes: (%s)\n", rlen, s)
-  	}
+		if err != nil {
+			fmt.Printf("Unable to read data from UDP socket. Error: %s\n", err)
+			break;
+		}
+
+		s := string(buffer)
+		s = s[5:rlen-2]
+		fmt.Printf("Received %d bytes: (%S)\n", rlen, s)
+	}
 }
-
 func (cs *CS) HandleCSBuffer(csBuffer string) {
 	// Handle CS events here
 }
