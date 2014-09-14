@@ -3,6 +3,8 @@ package main
 import (
 	"fmt"
 	"strings"
+	"math/rand"
+	"time"
 )
 
 const MAX_PLAYERS = 10
@@ -44,6 +46,29 @@ func (p *PUG) JoinPug(player string) bool {
 
 func (p *PUG) GetPlayerCount() int {
 	return len(p.players)
+}
+
+func (p *PUG) AssignNewAdmin() {
+	if (p.GetPlayerCount() == 1) {
+		p.pugAdmin = p.players[0]
+		return;
+	}
+
+	rand.Seed(time.Now().UTC().UnixNano())
+	i := rand.Intn(p.GetPlayerCount()-0)
+	p.pugAdmin = p.players[i]
+}
+
+func (p *PUG) UpdatePlayerNickname(oldNick string, newNick string) {
+	for i := range p.players {
+		if (oldNick == p.players[i]) {
+			p.players[i] = newNick
+			if (p.pugAdmin == oldNick) {
+				p.pugAdmin = newNick
+			}
+			break;
+		}
+	}
 }
 
 func (p *PUG) LeavePug(player string) bool {

@@ -156,6 +156,35 @@ func (irc *IRC) HandleIRCEvents(ircBuffer []string) {
 		irc.WriteData("%s\r\n", strings.Replace(s, "PING", "PONG", 1))
 	} else if (ircBuffer[1] == "PONG") && (ircBuffer[3] == ":TIMEOUTCHECK") {
 		irc.pongReceived = true
+	} else if (ircBuffer[1] == "NICK") {
+		if (!irc.pug.PugStarted()) {
+			return;
+		}
+
+		nickname := strings.Split(ircBuffer[0], "!")[0]
+		nickname = strings.TrimPrefix(nickname, ":")
+		newNickname := strings.TrimPrefix(ircBuffer[2], ":")
+		irc.pug.UpdatePlayerNickname(nickname, newNickname)
+	} else if (ircBuffer[1] == "PART" || ircBuffer[1] == "QUIT") {
+		if (!irc.pug.PugStarted()) {
+			return;
+		}
+
+		nickname := strings.Split(ircBuffer[0], "!")[0]
+		nickname = strings.TrimPrefix(nickname, ":")
+		if (irc.pug.LeavePug(nickname)) {
+			if (irc.pug.GetPlayerCount() == 0) {
+				irc.SendToChannel("The PUG admin has left the PUG and there are no other plays to assign the admin rights to. Type !pug <map> to start a new one.")
+				irc.pug.EndPug();
+			} else {
+				if (irc.pug.GetAdmin() == nickname) {
+					irc.pug.AssignNewAdmin();
+					irc.SendToChannel("The PUG administrator has left the pug and %s has been asigned as the PUG admin.", irc.pug.GetAdmin())
+				} else {
+					irc.SendToChannel("%s has left the pug, [%d/10]", nickname, irc.pug.GetPlayerCount())
+				}
+			}
+		}
 	} else if (ircBuffer[1] == "PRIVMSG") {
 		nickname := strings.Split(ircBuffer[0], "!")[0]
 		nickname = strings.TrimPrefix(nickname, ":")
@@ -174,9 +203,11 @@ func (irc *IRC) HandleIRCEvents(ircBuffer []string) {
 			}
 			if (len(message) > 1) {
 				s := message[1];
-				if (irc.pug.IsValidMap(s)) {
+				if (!irc.pug.IsValidMap(s)) {
+					irc.pug.SetMap("de_dust2")
+				} else {
 					irc.pug.SetMap(s)
-				}			
+				}
 			} 
 			irc.pug.StartPug()
 			irc.pug.JoinPug(nickname)
@@ -194,19 +225,17 @@ func (irc *IRC) HandleIRCEvents(ircBuffer []string) {
 		} else if (message[0] == "!leave") {
 			if (irc.pug.PugStarted()) {
 				if (irc.pug.LeavePug(nickname)) {
-					irc.SendToChannel("%s has left the pug [%d/10]", nickname, irc.pug.GetPlayerCount())
-					return;
-				}
-			} else {
-				irc.SendToChannel("A PUG has not been started, type !pug <map> to start a new one.")
-				return;
-			}
-		} else if (message[0] == "!cancelpug") {
-			if (irc.pug.PugStarted()) {
-				if (nickname == irc.pug.GetAdmin()) {
-					irc.pug.EndPug();
-					irc.SendToChannel("The PUG administrator has cancelled the pug. Type !pug <map> to start a new one.")
-					return;
+					if (irc.pug.GetPlayerCount() == 0) {
+						irc.SendToChannel("The PUG admin has left the PUG and there are no other plays to assign the admin rights to. Type !pug <map> to start a new one.")
+						irc.pug.EndPug();
+					} else {
+						if (irc.pug.GetAdmin() == nickname) {
+							irc.pug.AssignNewAdmin();
+							irc.SendToChannel("The PUG administrator has left the pug and %s has been asigned as the PUG admin.", irc.pug.GetAdmin())
+						} else {
+							irc.SendToChannel("%s has left the pug, [%d/10]", nickname, irc.pug.GetPlayerCount())
+						}
+					}
 				}
 			} else {
 				irc.SendToChannel("A PUG has not been started, type !pug <map> to start a new one.")
