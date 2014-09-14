@@ -15,7 +15,7 @@ type Message struct {
 type IRC struct {
 	server, password, nickname, username, channel string
 	socket net.Conn
-	connected bool
+	connected, ProtocolDebug bool
 
 	pingTime time.Time
 	pingSent, pongReceived, joinedChannel bool
@@ -134,6 +134,13 @@ func (irc *IRC) ConnectToServer() bool {
 }
 
 func (irc *IRC) HandleIRCEvents(ircBuffer []string) {
+	if (irc.ProtocolDebug) {
+		fmt.Printf("ircBffer size: %d\n", len(ircBuffer))
+		for i, _ := range ircBuffer {
+			fmt.Printf("ircBuffer[%d] = %s\n", i, ircBuffer[i])
+		}
+	}
+
 	if (ircBuffer[1] == "001") {
 		irc.WriteData("JOIN %s\r\n", irc.channel)
 		irc.joinedChannel = true
@@ -154,26 +161,27 @@ func (irc *IRC) HandleIRCEvents(ircBuffer []string) {
 		nickname = strings.TrimPrefix(nickname, ":")
 		host := strings.Split(ircBuffer[0], "@")[1]
 		destination := ircBuffer[2]
-		message := strings.Join(ircBuffer[3:], " ")
-		message = strings.TrimPrefix(message, ":")
-		msg := Message{nickname, host, destination, message}
+		msgBuf := strings.Join(ircBuffer[3:], " ")
+		msgBuf = strings.TrimPrefix(msgBuf, ":")
+		message := strings.Split(msgBuf, " ")
+		msg := Message{nickname, host, destination, msgBuf}
 		fmt.Println(msg)
 
-		if (strings.Contains(message, "!pug") && strings.Contains(ircBuffer[3], "!pug")) {
+		if (message[0] == "!pug") {
 			if (irc.pug.PugStarted()) {
 				irc.SendToChannel("A PUG has already been started, please wait until the next PUG has started.")
 				return;
 			}
-			if (len(ircBuffer) == 5) {
-				s := ircBuffer[4];
-				if (!irc.pug.IsValidMap(s)) {
+			if (len(message) > 1) {
+				s := message[1];
+				if (irc.pug.IsValidMap(s)) {
 					irc.pug.SetMap(s)
 				}			
 			} 
 			irc.pug.StartPug()
 			irc.pug.JoinPug(nickname)
 			irc.SendToChannel("A PUG has been started on map %s, type !join to join the pug", irc.pug.GetMap())
-		} else if (message == "!join") {
+		} else if (message[0] == "!join") {
 			if (irc.pug.PugStarted()) {
 				if (irc.pug.JoinPug(nickname)) {
 					irc.SendToChannel("%s has joined the pug! [%d/10]", nickname, irc.pug.GetPlayerCount())
@@ -183,7 +191,7 @@ func (irc *IRC) HandleIRCEvents(ircBuffer []string) {
 				irc.SendToChannel("A PUG has not been started, type !pug <map> to start a new one.")
 				return;
 			}
-		} else if (message == "!leave") {
+		} else if (message[0] == "!leave") {
 			if (irc.pug.PugStarted()) {
 				if (irc.pug.LeavePug(nickname)) {
 					irc.SendToChannel("%s has left the pug [%d/10]", nickname, irc.pug.GetPlayerCount())
@@ -193,7 +201,7 @@ func (irc *IRC) HandleIRCEvents(ircBuffer []string) {
 				irc.SendToChannel("A PUG has not been started, type !pug <map> to start a new one.")
 				return;
 			}
-		} else if (message == "!cancelpug") {
+		} else if (message[0] == "!cancelpug") {
 			if (irc.pug.PugStarted()) {
 				if (nickname == irc.pug.GetAdmin()) {
 					irc.pug.EndPug();
@@ -204,18 +212,21 @@ func (irc *IRC) HandleIRCEvents(ircBuffer []string) {
 				irc.SendToChannel("A PUG has not been started, type !pug <map> to start a new one.")
 				return;
 			}
-		} else if (message == "!stats") {
+		} else if (message[0] == "!stats") {
 			irc.SendToChannel("Stats for player %s can be visited here: http://www.cs-stats.com/player/xxxxxx", nickname)
 			return;
-		} else if (message == "!players") { 
+		} else if (message[0] == "!players") { 
 			if (irc.pug.PugStarted()) {
 				irc.SendToChannel("Player list: %s [%d/10]", strings.Join(irc.pug.GetPlayers(), " "), irc.pug.GetPlayerCount())
 				return;
 			}
-		} else if (strings.Contains(message, "!say") && strings.Contains(ircBuffer[3], "!say")) {
+		} else if (message[0] == "!say") {
 			if (irc.cs.rconConnected) {
-				s := strings.Join(ircBuffer[4:], " ")
-				irc.cs.rc.WriteData("say [IRC] %s", s)
+				if (len(message) > 1) {
+					s := strings.Join(message[1:], " ")
+					irc.cs.rc.WriteData("say [IRC] %s", s)
+					irc.SendToChannel("Sent message to CS server.")
+				}
 			}
 		}
 	}

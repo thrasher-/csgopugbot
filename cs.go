@@ -27,11 +27,11 @@ const readBufferSize = 4110
 // Thanks to https://github.com/james4k/ (james4k) for some of the RCON functions
 
 type CS struct {
-	listenAddress, rconPassword, localIP, externalIP, csServer string
+	listenAddress, rconPassword, pugPassword, authSteamID, localIP, externalIP, csServer string
 	SrvSocket *net.UDPConn
 	socket net.Conn
 	rc RemoteConsole
-	rconConnected bool
+	rconConnected, ProtocolDebug bool
 }
 
 type RemoteConsole struct {
@@ -250,22 +250,101 @@ func (cs *CS) ConnectToRcon() bool  {
 	return true
 }
 
-func (cs *CS) RecvData() {
-	for {
-		buffer := make([]byte, 1024)
-		rlen, _, err := cs.SrvSocket.ReadFromUDP(buffer)
+func (cs *CS) RecvData() ([]string, bool) {
+	buffer := make([]byte, 1024)
+	rlen, _, err := cs.SrvSocket.ReadFromUDP(buffer)
 
-		if err != nil {
-			fmt.Printf("Unable to read data from UDP socket. Error: %s\n", err)
-			break;
-		}
-
-		s := string(buffer)
-		s = s[5:rlen-2]
-		fmt.Printf("Received %d bytes: (%S)\n", rlen, s)
+	if err != nil {
+		fmt.Printf("Unable to read data from UDP socket. Error: %s\n", err)
+		return nil, false
 	}
+
+	s := string(buffer)
+	s = s[5:rlen-2]
+	fmt.Printf("Received %d bytes: (%s)\n", rlen, s)
+	return strings.Split(s, " "), true
 }
-func (cs *CS) HandleCSBuffer(csBuffer string) {
-	// Handle CS events here
+
+func (irc *IRC) HandleCSBuffer(csBuffer []string, cs CS) {
+	if (cs.ProtocolDebug) {
+		fmt.Printf("csBuffer size: %d\n", len(csBuffer))
+		for i, _ := range csBuffer {
+			fmt.Printf("csBuffer[%d] = %s\n", i, csBuffer[i])
+		}
+	}
+	if (csBuffer[5] == "entered") {
+		player := csBuffer[4];
+		irc.SendToChannel("%s has entered the game.", player)
+	} else if (csBuffer[5] == "purchased") {
+		player := csBuffer[4];
+		item := csBuffer[6][1:len(csBuffer[6])-1];
+		fmt.Printf("Player %s purchased %s\n", player, item)
+		return;
+	} else if (csBuffer[5] == "triggered") {
+		player := csBuffer[4]
+		event := csBuffer[6][1:len(csBuffer[6])-1];
+
+		switch (event) {
+			case "Begin_Bomb_Defuse_Without_Kit" : irc.SendToChannel("%s started bomb defuse without kit.", player) 
+			case "Begin_Bomb_Defuse_With_Kit" : irc.SendToChannel("%s started bomb defuse with kit.", player)
+			case "Dropped_The_Bomb" : irc.SendToChannel("%s dropped the bomb.", player)
+			case "Planted_The_Bomb" : irc.SendToChannel("%s planted the bomb.", player)
+			case "Got_The_Bomb" :  irc.SendToChannel("%s picked up the bomb.", player)
+			case "Defused_The_Bomb" : irc.SendToChannel("%s defused the bomb.", player)
+			case "Round_Start" : irc.SendToChannel("Round Started\n")
+			case "Round_End" : irc.SendToChannel("Round ended\n")
+		}
+		return;
+	} else if (csBuffer[5] == "say") {
+		player := csBuffer[4];
+		fmt.Printf("Player %s said %s\n", player, strings.Join(csBuffer[6:], " "))
+		message := strings.Join(csBuffer[6:], " ")
+		message = message[1:len(message)-1]
+		msg := strings.Split(message, " ")
+
+		if (len(cs.authSteamID) == 0) {
+			if (msg[0] == "!login" && len(msg) > 1) {
+				password := msg[1];
+				fmt.Printf("IN-GAME AUTH request: comparing '%s' to '%s'", password, cs.pugPassword)
+				if (password == cs.pugPassword) {
+					cs.rc.WriteData("say PUG admin rights has been granted to %s", player)
+					irc.SendToChannel("PUG admin rights has been granted to %s", player)
+				}
+			}
+		}
+		if (msg[0] == "!lo3") {
+			cs.rc.WriteData("Going Live on 3 restarts..")
+		} else if (msg[0] == "!request") {
+			cs.rc.WriteData("say Requesting for players on IRC.")
+			irc.SendToChannel("MATCH has gone live!")
+			return;
+		} else if (msg[0] == "!map" && len(msg) > 1) {
+			mapName := msg[1];
+			cs.rc.WriteData("say Changing map to '%s'.", mapName)
+			cs.rc.WriteData("changelevel %s", mapName)
+			irc.SendToChannel("PUG admin changed level to %s", mapName)
+			return;
+		} else if (msg[0] == "!irc") {
+			if (len(msg) > 1) {
+				s := strings.Join(msg[1:], " ")
+				cs.rc.WriteData("say Sending message to IRC: %s.", s)
+				irc.SendToChannel("[CS]: %s", s)
+				return;
+			}
+		}
+	}
+	if (len(csBuffer) >= 14) {
+		if (csBuffer[8] == "killed") {
+			player1 := csBuffer[4]
+			player2 := csBuffer[9];
+			weapon := csBuffer[14][1:len(csBuffer[14])-1];
+
+			if (len(csBuffer) == 16) {
+				irc.SendToChannel("%s killed %s with %s (headshot)\n", player1, player2, weapon)
+			} else {
+				irc.SendToChannel("%s killed %s with %s\n", player1, player2, weapon)
+			}
+		}
+	}
 }
 

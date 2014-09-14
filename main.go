@@ -5,6 +5,7 @@ import (
 	"time"
 )
 
+
 func main() {
 
 	irc := IRC{
@@ -15,6 +16,7 @@ func main() {
 		"#PugBotTest", //channel
 		nil,  // net.Conn
 		false, //irc connected
+		false, //irc protocol debug
 		time.Now(), // pingTime
 		false, //ping sent
 		false, //pong received 
@@ -25,14 +27,26 @@ func main() {
 
 	irc.pug.SetAllowedMaps([]string{"de_dust2", "de_inferno", "de_nuke", "de_train", "de_mirage", "de_overpass", "de_cobblestone"})
 	irc.cs.rconPassword = "Gibson"
-	irc.cs.csServer = "192.168.0.50:27015"
+	irc.cs.csServer = "192.168.182.1:27016"
 	irc.cs.listenAddress = ":1337"
 
 	if (irc.cs.ConnectToRcon()) {
 		if (irc.cs.StartUDPServer()) {
-			go irc.cs.RecvData();
+			go func() {
+				for {
+					r, err := irc.cs.RecvData();
+
+					if !err {
+						fmt.Printf("Error with receiving CS UDP server buffer.")
+						break;
+					}
+					irc.HandleCSBuffer(r, irc.cs)
+				}
+			}()
 			irc.cs.rc.WriteData("say PugBot connected")
 			irc.cs.EnableLogging()
+			irc.cs.ProtocolDebug = true
+			irc.cs.pugPassword = "test123"
 
 			if (!irc.connected) {
 				if (irc.ConnectToServer()) {
