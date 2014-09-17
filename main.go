@@ -29,6 +29,7 @@ func main() {
 	irc.pug.SetAllowedMaps([]string{"de_dust2", "de_inferno", "de_nuke", "de_train", "de_mirage", "de_overpass", "de_cobblestone"})
 	irc.cs.rconPassword = "Gibson"
 	irc.cs.csServer = "192.168.182.1:27015"
+	irc.cs.serverPassword = "Gibson"
 	irc.cs.listenAddress = ":1337"
 
 	if (irc.cs.ConnectToRcon()) {

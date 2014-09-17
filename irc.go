@@ -227,7 +227,21 @@ func (irc *IRC) HandleIRCEvents(ircBuffer string) {
 				if irc.pug.PugStarted() {
 					if irc.pug.JoinPug(nickname) {
 						irc.SendToChannel("%s has joined the pug! [%d/10]", nickname, irc.pug.GetPlayerCount())
-						return
+						if irc.pug.GetPlayerCount() < 10 {
+							return
+						}
+						irc.SendToChannel("The PUG is now full! The server information will be messaged to you.")
+						irc.pug.RandomisePlayerList()
+						players := irc.pug.GetPlayers()
+						irc.SendToChannel("The teams are as follows. Terrorists: %s Counter-Terrorists: %s", strings.Join(players[0:5], " "), strings.Join(players[5:10], " "))
+						
+						for i := range players {
+							if players[i] == irc.pug.GetAdmin() {
+								irc.WriteData("PRIVMSG %s :PUG details are: connect %s; password %s. PUG Admin password: %s (type !login <password> in game and !lo3 once all players are ready).\r\n", players[i], irc.cs.csServer, irc.cs.serverPassword, irc.cs.pugPassword)
+							} else {
+								irc.WriteData("PRIVMSG %s :PUG details are: connect %s; password %s.\r\n", players[i], irc.cs.csServer, irc.cs.serverPassword)
+							}
+						}
 					}
 				} else {
 					irc.SendToChannel("A PUG has not been started, type !pug <map> to start a new one.")

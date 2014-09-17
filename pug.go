@@ -27,7 +27,7 @@ func (p *PUG) PugActive() bool {
 }
 
 func (p *PUG) JoinPug(player string) bool {
-	if (!p.pugStarted || len(p.players) >= MAX_PLAYERS) {
+	if (!p.pugStarted || len(p.players) == MAX_PLAYERS) {
 		return false
 	}
 
@@ -57,6 +57,15 @@ func (p *PUG) AssignNewAdmin() {
 	rand.Seed(time.Now().UTC().UnixNano())
 	i := rand.Intn(p.GetPlayerCount()-0)
 	p.pugAdmin = p.players[i]
+}
+
+func (p *PUG) RandomisePlayerList() {
+	rand.Seed(time.Now().UnixNano())
+
+	for i := range p.players {
+		j := rand.Intn(i + 1)
+		p.players[i], p.players[j] = p.players[j], p.players[i]
+	}
 }
 
 func (p *PUG) UpdatePlayerNickname(oldNick string, newNick string) {
