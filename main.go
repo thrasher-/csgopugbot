@@ -23,6 +23,7 @@ func main() {
 		false, //joined channel
 		PUG{},
 		CS{},
+		ScoreManager{},
 	}
 
 	irc.pug.SetAllowedMaps([]string{"de_dust2", "de_inferno", "de_nuke", "de_train", "de_mirage", "de_overpass", "de_cobblestone"})

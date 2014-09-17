@@ -22,6 +22,7 @@ type IRC struct {
 	pingSent, pongReceived, joinedChannel bool
 	pug PUG
 	cs CS
+	ScoreM ScoreManager
 }
 
 func (irc *IRC) SendToChannel(data string, v ...interface{}) {

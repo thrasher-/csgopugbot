@@ -27,7 +27,7 @@ const readBufferSize = 4110
 // Thanks to https://github.com/james4k/ (james4k) for some of the RCON functions
 
 type CS struct {
-	listenAddress, rconPassword, pugPassword, authSteamID, localIP, externalIP, csServer string
+	listenAddress, rconPassword, serverPassword, pugPassword, authSteamID, localIP, externalIP, csServer string
 	SrvSocket *net.UDPConn
 	socket net.Conn
 	rc RemoteConsole
@@ -314,11 +314,30 @@ func (irc *IRC) HandleCSBuffer(csBuffer []string, cs CS) {
 			case "Defused_The_Bomb":
 				irc.SendToChannel("%s defused the bomb.", player)
 			case "Round_Start":
-				irc.SendToChannel("Round Started\n")
+				irc.ScoreM.ResetRoundStats()
 			case "Round_End":
-				irc.SendToChannel("Round ended\n")
+				irc.SendToChannel("			CT Score (%d)  			T Score (%d)		", irc.ScoreM.GetCTScore(), irc.ScoreM.GetTScore())
+				irc.SendToChannel("******************** ROUND ENDED ********************")
+				irc.SendToChannel("******************** ROUND STARTED ******************")
 		}
 		return;
+	} else if (csBuffer[6] == "triggered") {
+		event := csBuffer[7][1:len(csBuffer[7])-1];
+
+		switch (event) {
+			case "SFUI_Notice_Target_Bombed":
+				irc.ScoreM.SetTScore(irc.ScoreM.GetTScore()+1)
+				irc.SendToChannel("*** Target bombed successfully, the Terrorists win! ***")
+			case "SFUI_Notice_Terrorists_Win":
+				irc.ScoreM.SetTScore(irc.ScoreM.GetTScore()+1)
+				irc.SendToChannel("******* All CT's eliminated, the Terrorists win! *******")
+			case "SFUI_Notice_Bomb_Defused":
+				irc.ScoreM.SetCTScore(irc.ScoreM.GetCTScore()+1)
+				irc.SendToChannel("******* Bomb defused, the Counter-Terrorists win! ******")
+			case "SFUI_Notice_CTs_Win":
+				irc.ScoreM.SetCTScore(irc.ScoreM.GetCTScore()+1)
+				irc.SendToChannel("*** All Terrorists eliminated, the Terrorists win! ***\n")
+		}
 	} else if (csBuffer[5] == "say") {
 		player,_,steamID,_ := GetPlayerInfo(csBuffer[4])
 		fmt.Printf("Player %s said %s\n", player, strings.Join(csBuffer[6:], " "))
@@ -334,14 +353,22 @@ func (irc *IRC) HandleCSBuffer(csBuffer []string, cs CS) {
 					cs.rc.WriteData("say PUG admin rights has been granted to %s", player)
 					irc.SendToChannel("PUG admin rights has been granted to %s", player)
 					cs.authSteamID = steamID
+					return;
 				}
 			}
 		}
 		if (msg[0] == "!lo3") {
 			cs.rc.WriteData("Going Live on 3 restarts..")
+			irc.ScoreM.StartScoreManager()
+			cs.rc.WriteData("mp_restart 1")
+			cs.rc.WriteData("mp_restart 1")
+			cs.rc.WriteData("mp_restart 1")
+			cs.rc.WriteData("say LIVE! LIVE! LIVE! Good luck and have fun")
+			irc.SendToChannel("*** MATCH HAS GONE LIVE.")
+			return;
 		} else if (msg[0] == "!request") {
 			cs.rc.WriteData("say Requesting for players on IRC.")
-			irc.SendToChannel("MATCH has gone live!")
+			irc.SendToChannel("Need player! To join, use the connect string: connect %s; password %s", cs.csServer, cs.serverPassword)
 			return;
 		} else if (msg[0] == "!map" && len(msg) > 1) {
 			mapName := msg[1];
@@ -360,14 +387,27 @@ func (irc *IRC) HandleCSBuffer(csBuffer []string, cs CS) {
 	}
 	if (len(csBuffer) >= 14) {
 		if (csBuffer[8] == "killed") {
-			player1,_,_,_ := GetPlayerInfo(csBuffer[4])
-			player2,_,_,_ := GetPlayerInfo(csBuffer[9])
+			player1,_,_,team1 := GetPlayerInfo(csBuffer[4])
+			player2,_,_,team2 := GetPlayerInfo(csBuffer[9])
 			weapon := csBuffer[14][1:len(csBuffer[14])-1];
+			headshot := ""
 
 			if (len(csBuffer) == 16) {
-				irc.SendToChannel("%s killed %s with %s (headshot)\n", player1, player2, weapon)
-			} else {
-				irc.SendToChannel("%s killed %s with %s\n", player1, player2, weapon)
+				headshot = "(headshot)"
+			}
+
+			if (team1 == "TERRORIST" && team2 == "CT") {
+				irc.ScoreM.SetCTsLeft(irc.ScoreM.GetCTsLeft()-1)
+				irc.SendToChannel("%s (T) killed %s (CT) with %s %s [%d/5 left]\n", player1, player2, weapon, headshot, irc.ScoreM.GetCTsLeft())
+			} else if (team1 == "CT" && team2 == "TERRORIST") {
+				irc.ScoreM.SetTsLeft(irc.ScoreM.GetTsLeft()-1)
+				irc.SendToChannel("%s (CT) killed %s (T) with %s %s [%d/5 left]\n", player1, player2, weapon, headshot, irc.ScoreM.GetTsLeft())	
+			} else if (team1 == "TERRORIST" && team2 == "TERRORIST") {
+				irc.ScoreM.SetTsLeft(irc.ScoreM.GetTsLeft()-1)
+				irc.SendToChannel("%s (T) killed %s (T) with %s %s [%d/5 left]\n", player1, player2, weapon, headshot, irc.ScoreM.GetTsLeft())	
+			} else if (team1 == "CT" && team2 == "CT") {
+				irc.ScoreM.SetCTsLeft(irc.ScoreM.GetCTsLeft()-1)
+				irc.SendToChannel("%s (CT) killed %s (CT) with %s %s [%d/5 left]\n", player1, player2, weapon, headshot, irc.ScoreM.GetCTsLeft())	
 			}
 		}
 	}
