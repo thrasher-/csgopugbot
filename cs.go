@@ -356,6 +356,11 @@ func (irc *IRC) HandleCSBuffer(csBuffer []string, cs CS) {
 					return;
 				}
 			}
+		} else {
+			if (cs.authSteamID != steamID) {
+				fmt.Println("Invalid auth attempt.")
+				return
+			}
 		}
 		if (msg[0] == "!lo3") {
 			cs.rc.WriteData("Going Live on 3 restarts..")
