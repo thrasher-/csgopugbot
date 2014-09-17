@@ -265,6 +265,22 @@ func (cs *CS) RecvData() ([]string, bool) {
 	return strings.Split(s, " "), true
 }
 
+func GetPlayerInfo(playerInfo string) (string, string, string, string) {
+	// "Quinn<28><BOT><TERRORIST>";
+
+	if strings.Count(playerInfo, "<") == 0 {
+		return "", "", "", ""
+	}
+
+	playerInfo = playerInfo[1:len(playerInfo)-1];
+	splitBuffer := strings.SplitAfter(playerInfo, "<")
+	player := strings.Trim(splitBuffer[0], "<")
+	playerID := strings.TrimSuffix(splitBuffer[1], "><")
+	steamID := strings.TrimSuffix(splitBuffer[2], "><")
+	team := strings.TrimSuffix(splitBuffer[3], ">")
+	return player, playerID, steamID, team
+}
+
 func (irc *IRC) HandleCSBuffer(csBuffer []string, cs CS) {
 	if (cs.ProtocolDebug) {
 		fmt.Printf("csBuffer size: %d\n", len(csBuffer))
@@ -273,30 +289,38 @@ func (irc *IRC) HandleCSBuffer(csBuffer []string, cs CS) {
 		}
 	}
 	if (csBuffer[5] == "entered") {
-		player := csBuffer[4];
-		irc.SendToChannel("%s has entered the game.", player)
+		player,_,steamID,_ := GetPlayerInfo(csBuffer[4])
+		irc.SendToChannel("%s (%s) has entered the game.", player, steamID)
 	} else if (csBuffer[5] == "purchased") {
-		player := csBuffer[4];
+		player,_,_,_ := GetPlayerInfo(csBuffer[4])
 		item := csBuffer[6][1:len(csBuffer[6])-1];
 		fmt.Printf("Player %s purchased %s\n", player, item)
 		return;
 	} else if (csBuffer[5] == "triggered") {
-		player := csBuffer[4]
+		player,_,_,_ := GetPlayerInfo(csBuffer[4])
 		event := csBuffer[6][1:len(csBuffer[6])-1];
 
 		switch (event) {
-			case "Begin_Bomb_Defuse_Without_Kit" : irc.SendToChannel("%s started bomb defuse without kit.", player) 
-			case "Begin_Bomb_Defuse_With_Kit" : irc.SendToChannel("%s started bomb defuse with kit.", player)
-			case "Dropped_The_Bomb" : irc.SendToChannel("%s dropped the bomb.", player)
-			case "Planted_The_Bomb" : irc.SendToChannel("%s planted the bomb.", player)
-			case "Got_The_Bomb" :  irc.SendToChannel("%s picked up the bomb.", player)
-			case "Defused_The_Bomb" : irc.SendToChannel("%s defused the bomb.", player)
-			case "Round_Start" : irc.SendToChannel("Round Started\n")
-			case "Round_End" : irc.SendToChannel("Round ended\n")
+			case "Begin_Bomb_Defuse_Without_Kit": 
+				irc.SendToChannel("%s started bomb defuse without kit.", player)
+			case "Begin_Bomb_Defuse_With_Kit":
+				irc.SendToChannel("%s started bomb defuse with kit.", player)
+			case "Dropped_The_Bomb":
+				irc.SendToChannel("%s dropped the bomb.", player)
+			case "Planted_The_Bomb": 
+				irc.SendToChannel("%s planted the bomb.", player)
+			case "Got_The_Bomb":
+				irc.SendToChannel("%s picked up the bomb.", player)
+			case "Defused_The_Bomb":
+				irc.SendToChannel("%s defused the bomb.", player)
+			case "Round_Start":
+				irc.SendToChannel("Round Started\n")
+			case "Round_End":
+				irc.SendToChannel("Round ended\n")
 		}
 		return;
 	} else if (csBuffer[5] == "say") {
-		player := csBuffer[4];
+		player,_,steamID,_ := GetPlayerInfo(csBuffer[4])
 		fmt.Printf("Player %s said %s\n", player, strings.Join(csBuffer[6:], " "))
 		message := strings.Join(csBuffer[6:], " ")
 		message = message[1:len(message)-1]
@@ -309,6 +333,7 @@ func (irc *IRC) HandleCSBuffer(csBuffer []string, cs CS) {
 				if (password == cs.pugPassword) {
 					cs.rc.WriteData("say PUG admin rights has been granted to %s", player)
 					irc.SendToChannel("PUG admin rights has been granted to %s", player)
+					cs.authSteamID = steamID
 				}
 			}
 		}
@@ -335,8 +360,8 @@ func (irc *IRC) HandleCSBuffer(csBuffer []string, cs CS) {
 	}
 	if (len(csBuffer) >= 14) {
 		if (csBuffer[8] == "killed") {
-			player1 := csBuffer[4]
-			player2 := csBuffer[9];
+			player1,_,_,_ := GetPlayerInfo(csBuffer[4])
+			player2,_,_,_ := GetPlayerInfo(csBuffer[9])
 			weapon := csBuffer[14][1:len(csBuffer[14])-1];
 
 			if (len(csBuffer) == 16) {
