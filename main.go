@@ -3,17 +3,44 @@ package main
 import (
 	"fmt"
 	"time"
+	"strings"
+	"log"
 )
 
 
 func main() {
 
+	mconfig := make(map[string]string)
+	fmt.Printf("Loading Config\n")
+	lines, err := readConfig("config.ini")
+	if err != nil {
+		log.Fatalf("Error Reading Config File")
+	}
+	for _, line := range lines {
+		if strings.Contains(line, "server="){
+			mconfig["server"] = strings.TrimPrefix(line, "server=")
+		}
+		if strings.Contains(line, "password="){
+			mconfig["password"] = strings.TrimPrefix(line, "password=")
+		}
+		if strings.Contains(line, "nickname="){
+			mconfig["nickname"] = strings.TrimPrefix(line, "nickname=")
+		}
+		if strings.Contains(line, "username="){
+			mconfig["username"] = strings.TrimPrefix(line, "username=")
+		}
+		if strings.Contains(line, "channel="){
+			mconfig["channel"] = strings.TrimPrefix(line, "channel=")
+		}
+	}
+	fmt.Println(mconfig["server"], mconfig["password"], mconfig["nickname"], mconfig["channel"]) //for ze testing
+	
 	irc := IRC{
-		"irc.freenode.net:6667", //server
-		"", //password
-		"PugBotTest",  //nickname
-		"0 0 0 0", //username
-		"#PugBotTest", //channel
+		mconfig["server"], //server
+		mconfig["password"], //password
+		mconfig["nickname"],  //nickname
+		mconfig["username"], //username
+		mconfig["channel"], //channel
 		nil,  // net.Conn
 		false, //irc connected
 		false, //irc protocol debug
@@ -85,5 +112,4 @@ func main() {
 		return;
 	}
 }
-
 
