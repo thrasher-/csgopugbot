@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"strings"
+	"strconv"
 	"math/rand"
 	"time"
 )
@@ -26,6 +27,12 @@ func (p *PUG) PugActive() bool {
 	return p.pugActive
 }
 
+func (p *PUG) GenerateRandomPassword(word string) string {
+	rand.Seed(time.Now().UTC().UnixNano())
+	i := rand.Intn(999-100) + 100
+	return word + strconv.Itoa(i)
+}
+
 func (p *PUG) JoinPug(player string) bool {
 	if (!p.pugStarted || len(p.players) == MAX_PLAYERS) {
 		return false
@@ -35,6 +42,9 @@ func (p *PUG) JoinPug(player string) bool {
 		p.pugAdmin = player;
 	}
 
+	p.players = append(p.players, player)
+		return true
+		
 	players := strings.Join(p.players, " ")
 	if (strings.Contains(players, player)) {
 		return false

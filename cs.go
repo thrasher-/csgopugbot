@@ -27,7 +27,7 @@ const readBufferSize = 4110
 // Thanks to https://github.com/james4k/ (james4k) for some of the RCON functions
 
 type CS struct {
-	listenAddress, rconPassword, serverPassword, pugPassword, authSteamID, localIP, externalIP, csServer string
+	listenAddress, rconPassword, serverPassword, pugAdminPassword, authSteamID, localIP, externalIP, csServer string
 	SrvSocket *net.UDPConn
 	socket net.Conn
 	rc RemoteConsole
@@ -348,8 +348,8 @@ func (irc *IRC) HandleCSBuffer(csBuffer []string, cs CS) {
 		if (len(cs.authSteamID) == 0) {
 			if (msg[0] == "!login" && len(msg) > 1) {
 				password := msg[1];
-				fmt.Printf("IN-GAME AUTH request: comparing '%s' to '%s'", password, cs.pugPassword)
-				if (password == cs.pugPassword) {
+				fmt.Printf("IN-GAME AUTH request: comparing '%s' to '%s'", password, cs.pugAdminPassword)
+				if (password == cs.pugAdminPassword) {
 					cs.rc.WriteData("say PUG admin rights has been granted to %s", player)
 					irc.SendToChannel("PUG admin rights has been granted to %s", player)
 					cs.authSteamID = steamID
