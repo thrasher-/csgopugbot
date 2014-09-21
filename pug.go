@@ -42,9 +42,6 @@ func (p *PUG) JoinPug(player string) bool {
 		p.pugAdmin = player;
 	}
 
-	p.players = append(p.players, player)
-		return true
-		
 	players := strings.Join(p.players, " ")
 	if (strings.Contains(players, player)) {
 		return false
