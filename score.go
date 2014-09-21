@@ -6,6 +6,8 @@ type PlayerInfo struct {
 }
 
 type ScoreManager struct {
+	firstHalfStarted, secondHalfStarted, matchCompleted bool
+	firstHalfT, firstHalfCT int
 	players PlayerInfo
 	CTScore, TScore int
 	CTsLeft, TsLeft int
@@ -48,10 +50,25 @@ func (sm *ScoreManager) ResetRoundStats() {
 	sm.TsLeft = 5
 }
 
-func (sm *ScoreManager) StartScoreManager() {
+func (sm *ScoreManager) ResetRoundCounter() {
 	sm.CTsLeft = 5
 	sm.TsLeft = 5
 
 	sm.CTScore = 0
 	sm.TScore = 0
+}
+
+func (sm *ScoreManager) Reset() {
+	sm.CTsLeft = 5
+	sm.TsLeft = 5
+
+	sm.CTScore = 0
+	sm.TScore = 0
+
+	sm.firstHalfStarted = false
+	sm.secondHalfStarted = false
+	sm.matchCompleted = false
+
+	sm.firstHalfT = 0
+	sm.firstHalfCT = 0
 }

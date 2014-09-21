@@ -300,7 +300,7 @@ func (irc *IRC) HandleCSBuffer(csBuffer []string, cs CS) {
 		player,_,_,_ := GetPlayerInfo(csBuffer[4])
 		event := csBuffer[6][1:len(csBuffer[6])-1];
 
-		switch (event) {
+		switch event {
 			case "Begin_Bomb_Defuse_Without_Kit": 
 				irc.SendToChannel("%s started bomb defuse without kit.", player)
 			case "Begin_Bomb_Defuse_With_Kit":
@@ -316,6 +316,7 @@ func (irc *IRC) HandleCSBuffer(csBuffer []string, cs CS) {
 			case "Round_Start":
 				irc.ScoreM.ResetRoundStats()
 			case "Round_End":
+				cs.rc.WriteData("say			CT Score (%d)  			T Score (%d)		", irc.ScoreM.GetCTScore(), irc.ScoreM.GetTScore())
 				irc.SendToChannel("			CT Score (%d)  			T Score (%d)		", irc.ScoreM.GetCTScore(), irc.ScoreM.GetTScore())
 				irc.SendToChannel("******************** ROUND ENDED ********************")
 				irc.SendToChannel("******************** ROUND STARTED ******************")
@@ -324,7 +325,7 @@ func (irc *IRC) HandleCSBuffer(csBuffer []string, cs CS) {
 	} else if (csBuffer[6] == "triggered") {
 		event := csBuffer[7][1:len(csBuffer[7])-1];
 
-		switch (event) {
+		switch event {
 			case "SFUI_Notice_Target_Bombed":
 				irc.ScoreM.SetTScore(irc.ScoreM.GetTScore()+1)
 				irc.SendToChannel("*** Target bombed successfully, the Terrorists win! ***")
@@ -336,7 +337,36 @@ func (irc *IRC) HandleCSBuffer(csBuffer []string, cs CS) {
 				irc.SendToChannel("******* Bomb defused, the Counter-Terrorists win! ******")
 			case "SFUI_Notice_CTs_Win":
 				irc.ScoreM.SetCTScore(irc.ScoreM.GetCTScore()+1)
-				irc.SendToChannel("*** All Terrorists eliminated, the Terrorists win! ***\n")
+				irc.SendToChannel("*** All Terrorists eliminated, the Counter-Terrorists win! ***\n")
+		}
+
+		if irc.ScoreM.firstHalfStarted {
+			if irc.ScoreM.GetCTScore() + irc.ScoreM.GetTScore() == 15 {
+				irc.SendToChannel("*** The first half has been completed.")
+				cs.rc.WriteData("say The first half has been completed.")
+				irc.ScoreM.firstHalfT = irc.ScoreM.GetTScore()
+				irc.ScoreM.firstHalfCT = irc.ScoreM.GetCTScore()
+				irc.ScoreM.SetTScore(0)
+				irc.ScoreM.SetCTScore(0)
+			}
+		}
+		if irc.ScoreM.secondHalfStarted {
+			if irc.ScoreM.GetCTScore() + irc.ScoreM.firstHalfT == 16 {
+				irc.SendToChannel("MATCH COMPLETED SUCCESSFULLY. The score was %d - %d", irc.ScoreM.GetCTScore() + irc.ScoreM.firstHalfT, irc.ScoreM.GetTScore() + irc.ScoreM.firstHalfCT)
+				cs.rc.WriteData("say MATCH COMPLETED SUCCESSFULLY. The Score was %d - %d", irc.ScoreM.GetCTScore() + irc.ScoreM.firstHalfT, irc.ScoreM.GetTScore() + irc.ScoreM.firstHalfCT)
+			} else if irc.ScoreM.GetCTScore() + irc.ScoreM.firstHalfT == 15 {
+				irc.SendToChannel("MATCH COMPLETED SUCCESSFULLY. The match was a draw.")
+				cs.rc.WriteData("say MATCH COMPLETED SUCCESSFULLY. The match was a draw.")
+			} else if irc.ScoreM.GetTScore() + irc.ScoreM.firstHalfCT == 16 {
+				irc.SendToChannel("MATCH COMPLETED SUCCESSFULLY. The score was %d - %d", irc.ScoreM.GetTScore() + irc.ScoreM.firstHalfCT, irc.ScoreM.GetCTScore() + irc.ScoreM.firstHalfT)
+				cs.rc.WriteData("say MATCH COMPLETED SUCCESSFULLY. The Score was %d - %d", irc.ScoreM.GetTScore() + irc.ScoreM.firstHalfCT, irc.ScoreM.GetCTScore() + irc.ScoreM.firstHalfT)
+			}
+
+			if (irc.ScoreM.matchCompleted) {
+				irc.pug.EndPug()
+				irc.ScoreM.Reset()
+				irc.SendToChannel("The PUG has completed, type !pug <map> to start a new one!")
+			}
 		}
 	} else if (csBuffer[5] == "say") {
 		player,_,steamID,_ := GetPlayerInfo(csBuffer[4])
@@ -363,11 +393,21 @@ func (irc *IRC) HandleCSBuffer(csBuffer []string, cs CS) {
 			}
 		}
 		if (msg[0] == "!lo3") {
-			cs.rc.WriteData("Going Live on 3 restarts..")
-			irc.ScoreM.StartScoreManager()
-			cs.rc.WriteData("mp_restart 1")
-			cs.rc.WriteData("mp_restart 1")
-			cs.rc.WriteData("mp_restart 1")
+			if !irc.ScoreM.firstHalfStarted && !irc.ScoreM.secondHalfStarted {
+				irc.ScoreM.ResetRoundCounter()
+				irc.ScoreM.firstHalfStarted  = true
+			} else if irc.ScoreM.firstHalfStarted && irc.ScoreM.firstHalfT + irc.ScoreM.firstHalfCT < 15 {
+				cs.rc.WriteData("say First half has already commenced. If you wish to cancel the first half, please type !cancelhalf.")
+				return;
+			} else if irc.ScoreM.firstHalfStarted && irc.ScoreM.firstHalfT + irc.ScoreM.firstHalfCT == 15 {
+				irc.ScoreM.secondHalfStarted  = true
+				cs.rc.WriteData("say The second half has begun!")
+				irc.SendToChannel("The second half has begun!")
+			}
+			cs.rc.WriteData("say Going Live on 3 restarts..")
+			cs.rc.WriteData("mp_restartgame 1")
+			cs.rc.WriteData("mp_restartgame 1")
+			cs.rc.WriteData("mp_restartgame 1")
 			cs.rc.WriteData("say LIVE! LIVE! LIVE! Good luck and have fun")
 			irc.SendToChannel("*** MATCH HAS GONE LIVE.")
 			return;
@@ -375,7 +415,32 @@ func (irc *IRC) HandleCSBuffer(csBuffer []string, cs CS) {
 			cs.rc.WriteData("say Requesting for players on IRC.")
 			irc.SendToChannel("Need player! To join, use the connect string: connect %s; password %s", cs.csServer, cs.serverPassword)
 			return;
+		} else if (msg[0] == "!restart") {
+			if irc.ScoreM.firstHalfStarted || irc.ScoreM.secondHalfStarted {
+				cs.rc.WriteData("say You are unable to restart the round once the game has gone live.")
+				return;
+			}
+			cs.rc.WriteData("mp_restartgame 1")
+			return;
+		} else if (msg[0] == "!cancelhalf") {
+			if irc.ScoreM.firstHalfStarted && !irc.ScoreM.secondHalfStarted {
+				irc.ScoreM.ResetRoundCounter()
+				irc.ScoreM.firstHalfStarted = false;
+				cs.rc.WriteData("say First half has been cancelled. Please type !lo3 once all players are ready.")
+				irc.SendToChannel("*** First half has been cancelled.")
+				return;
+			} else if irc.ScoreM.firstHalfStarted && irc.ScoreM.secondHalfStarted {
+				irc.ScoreM.ResetRoundCounter();
+				irc.ScoreM.firstHalfStarted = false;
+				cs.rc.WriteData("say Second half has been cancelled. Please type !lo3 once all players are ready.")
+				irc.SendToChannel("*** Second half has been cancelled.")
+				return;
+			}
 		} else if (msg[0] == "!map" && len(msg) > 1) {
+			if irc.ScoreM.firstHalfStarted || irc.ScoreM.secondHalfStarted {
+				cs.rc.WriteData("say You are unable to change the map once the game has gone live.")
+				return;
+			}
 			mapName := msg[1];
 			cs.rc.WriteData("say Changing map to '%s'.", mapName)
 			cs.rc.WriteData("changelevel %s", mapName)
@@ -401,16 +466,16 @@ func (irc *IRC) HandleCSBuffer(csBuffer []string, cs CS) {
 				headshot = "(headshot)"
 			}
 
-			if (team1 == "TERRORIST" && team2 == "CT") {
+			if team1 == "TERRORIST" && team2 == "CT" {
 				irc.ScoreM.SetCTsLeft(irc.ScoreM.GetCTsLeft()-1)
 				irc.SendToChannel("%s (T) killed %s (CT) with %s %s [%d/5 left]\n", player1, player2, weapon, headshot, irc.ScoreM.GetCTsLeft())
-			} else if (team1 == "CT" && team2 == "TERRORIST") {
+			} else if team1 == "CT" && team2 == "TERRORIST" {
 				irc.ScoreM.SetTsLeft(irc.ScoreM.GetTsLeft()-1)
 				irc.SendToChannel("%s (CT) killed %s (T) with %s %s [%d/5 left]\n", player1, player2, weapon, headshot, irc.ScoreM.GetTsLeft())	
-			} else if (team1 == "TERRORIST" && team2 == "TERRORIST") {
+			} else if team1 == "TERRORIST" && team2 == "TERRORIST" {
 				irc.ScoreM.SetTsLeft(irc.ScoreM.GetTsLeft()-1)
 				irc.SendToChannel("%s (T) killed %s (T) with %s %s [%d/5 left]\n", player1, player2, weapon, headshot, irc.ScoreM.GetTsLeft())	
-			} else if (team1 == "CT" && team2 == "CT") {
+			} else if team1 == "CT" && team2 == "CT" {
 				irc.ScoreM.SetCTsLeft(irc.ScoreM.GetCTsLeft()-1)
 				irc.SendToChannel("%s (CT) killed %s (CT) with %s %s [%d/5 left]\n", player1, player2, weapon, headshot, irc.ScoreM.GetCTsLeft())	
 			}
