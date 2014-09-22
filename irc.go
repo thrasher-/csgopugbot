@@ -73,7 +73,7 @@ func (irc *IRC) PingLoop() {
 				fmt.Println("IRC connection has timed out.")
 				irc.connected = false
 				break
-			} else {
+			} else if irc.pongReceived {
 				fmt.Println("Received pong to our ping.")
 				irc.pingSent = false
 				irc.pongReceived = false

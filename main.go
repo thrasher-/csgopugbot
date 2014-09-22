@@ -41,7 +41,7 @@ func main() {
 	irc.cs.rconPassword = config["csRconPassword"]
 	irc.cs.csServer = config["csServer"]
 	irc.cs.listenAddress = ":1337"
-	irc.cs.pugAdminPassword = "admin123"
+	irc.cs.pugAdminPassword = config["csPugAdminPassword"]
 
 	if (irc.cs.ConnectToRcon()) {
 		if (irc.cs.StartUDPServer()) {
