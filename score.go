@@ -13,6 +13,30 @@ type ScoreManager struct {
 	CTsLeft, TsLeft int
 }
 
+func (sm *ScoreManager) FirstHalfStarted() (bool) {
+	return sm.firstHalfStarted;
+}
+
+func (sm *ScoreManager) SetFirstHalfStarted(started bool) {
+	sm.firstHalfStarted = started
+}
+
+func (sm *ScoreManager) SecondHalfStarted() (bool) {
+	return sm.secondHalfStarted
+}
+
+func (sm *ScoreManager) SetSecondHalfStarted(started bool) {
+	sm.secondHalfStarted = started
+}
+
+func (sm *ScoreManager) MatchCompleted() (bool) {
+	return sm.matchCompleted
+}
+
+func (sm *ScoreManager) SetMatchCompleted(completed bool) {
+	sm.matchCompleted = completed
+}
+
 func (sm *ScoreManager) SetCTScore(i int) {
 	sm.CTScore = i
 }
@@ -45,7 +69,15 @@ func (sm *ScoreManager) GetTsLeft() (int) {
 	return sm.TsLeft
 }
 
-func (sm *ScoreManager) ResetRoundStats() {
+func (sm *ScoreManager) GetFirstHalfT() (int) {
+	return sm.firstHalfT
+}
+
+func (sm *ScoreManager) GetFirstHalfCT() (int) {
+	return sm.firstHalfCT
+}
+
+func (sm *ScoreManager) ResetRoundPlayersLeft() {
 	sm.CTsLeft = 5
 	sm.TsLeft = 5
 }
