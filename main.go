@@ -42,12 +42,13 @@ func main() {
 						fmt.Printf("Error with receiving CS UDP server buffer.")
 						break;
 					}
-					irc.HandleCSBuffer(r, irc.cs)
+					irc.HandleCSBuffer(r, &irc.cs)
 				}
 			}()
 			irc.cs.rc.WriteData("say PugBot connected")
 			irc.cs.EnableLogging()
-			irc.cs.ProtocolDebug = true
+			irc.cs.relayGameEvents = false
+			irc.cs.ProtocolDebug = false
 
 			if (!irc.connected) {
 				if (irc.ConnectToServer()) {

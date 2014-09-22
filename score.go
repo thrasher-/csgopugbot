@@ -73,8 +73,16 @@ func (sm *ScoreManager) GetFirstHalfT() (int) {
 	return sm.firstHalfT
 }
 
+func (sm *ScoreManager) SetFirstHalfT(firstHalfT int) {
+	sm.firstHalfT = firstHalfT;
+}
+
 func (sm *ScoreManager) GetFirstHalfCT() (int) {
 	return sm.firstHalfCT
+}
+
+func (sm *ScoreManager) SetFirstHalfCT(firstHalfCT int) {
+	sm.firstHalfCT = firstHalfCT;
 }
 
 func (sm *ScoreManager) ResetRoundPlayersLeft() {

@@ -31,7 +31,7 @@ type CS struct {
 	SrvSocket *net.UDPConn
 	socket net.Conn
 	rc RemoteConsole
-	rconConnected, ProtocolDebug bool
+	rconConnected, ProtocolDebug, relayGameEvents bool
 }
 
 type RemoteConsole struct {
@@ -281,7 +281,7 @@ func GetPlayerInfo(playerInfo string) (string, string, string, string) {
 	return player, playerID, steamID, team
 }
 
-func (irc *IRC) HandleCSBuffer(csBuffer []string, cs CS) {
+func (irc *IRC) HandleCSBuffer(csBuffer []string, cs *CS) {
 	if (cs.ProtocolDebug) {
 		fmt.Printf("csBuffer size: %d\n", len(csBuffer))
 		for i, _ := range csBuffer {
@@ -296,7 +296,7 @@ func (irc *IRC) HandleCSBuffer(csBuffer []string, cs CS) {
 		item := csBuffer[6][1:len(csBuffer[6])-1];
 		fmt.Printf("Player %s purchased %s\n", player, item)
 		return;
-	} else if (csBuffer[5] == "triggered") {
+	} else if csBuffer[5] == "triggered" && cs.relayGameEvents {
 		player,_,_,_ := GetPlayerInfo(csBuffer[4])
 		event := csBuffer[6][1:len(csBuffer[6])-1];
 
@@ -322,7 +322,7 @@ func (irc *IRC) HandleCSBuffer(csBuffer []string, cs CS) {
 				irc.SendToChannel("******************** ROUND STARTED ******************")
 		}
 		return;
-	} else if (csBuffer[6] == "triggered") {
+	} else if csBuffer[6] == "triggered" && cs.relayGameEvents {
 		event := csBuffer[7][1:len(csBuffer[7])-1];
 
 		switch event {
@@ -340,17 +340,17 @@ func (irc *IRC) HandleCSBuffer(csBuffer []string, cs CS) {
 				irc.SendToChannel("*** All Terrorists eliminated, the Counter-Terrorists win! ***\n")
 		}
 
-		if irc.ScoreM.firstHalfStarted {
+		if irc.ScoreM.FirstHalfStarted() {
 			if irc.ScoreM.GetCTScore() + irc.ScoreM.GetTScore() == 15 {
 				irc.SendToChannel("*** The first half has been completed.")
 				cs.rc.WriteData("say The first half has been completed.")
-				irc.ScoreM.firstHalfT = irc.ScoreM.GetTScore()
-				irc.ScoreM.firstHalfCT = irc.ScoreM.GetCTScore()
+				irc.ScoreM.SetFirstHalfT(irc.ScoreM.GetTScore())
+				irc.ScoreM.SetFirstHalfCT(irc.ScoreM.GetCTScore())
 				irc.ScoreM.SetTScore(0)
 				irc.ScoreM.SetCTScore(0)
 			}
 		}
-		if irc.ScoreM.secondHalfStarted {
+		if irc.ScoreM.SecondHalfStarted() {
 			if irc.ScoreM.GetCTScore() + irc.ScoreM.GetFirstHalfT() == 16 {
 				irc.SendToChannel("MATCH COMPLETED SUCCESSFULLY. The score was %d - %d", irc.ScoreM.GetCTScore() + irc.ScoreM.GetFirstHalfT(), irc.ScoreM.GetTScore() + irc.ScoreM.GetFirstHalfCT())
 				cs.rc.WriteData("say MATCH COMPLETED SUCCESSFULLY. The Score was %d - %d", irc.ScoreM.GetCTScore() + irc.ScoreM.GetFirstHalfT(), irc.ScoreM.GetTScore() + irc.ScoreM.GetFirstHalfCT())
@@ -362,7 +362,7 @@ func (irc *IRC) HandleCSBuffer(csBuffer []string, cs CS) {
 				cs.rc.WriteData("say MATCH COMPLETED SUCCESSFULLY. The Score was %d - %d", irc.ScoreM.GetTScore() + irc.ScoreM.GetFirstHalfCT(), irc.ScoreM.GetCTScore() + irc.ScoreM.GetFirstHalfT())
 			}
 
-			if (irc.ScoreM.matchCompleted) {
+			if irc.ScoreM.MatchCompleted() {
 				irc.pug.EndPug()
 				irc.ScoreM.Reset()
 				irc.SendToChannel("The PUG has completed, type !pug <map> to start a new one!")
@@ -385,6 +385,9 @@ func (irc *IRC) HandleCSBuffer(csBuffer []string, cs CS) {
 					cs.authSteamID = steamID
 					return;
 				}
+			} else {
+				// bot doesn't allow any unauthenticated message handling
+				return
 			}
 		} else {
 			if (cs.authSteamID != steamID) {
@@ -404,10 +407,12 @@ func (irc *IRC) HandleCSBuffer(csBuffer []string, cs CS) {
 				cs.rc.WriteData("say The second half has begun!")
 				irc.SendToChannel("The second half has begun!")
 			}
-			cs.rc.WriteData("say Going Live on 3 restarts..")
-			cs.rc.WriteData("mp_restartgame 1")
-			cs.rc.WriteData("mp_restartgame 1")
-			cs.rc.WriteData("mp_restartgame 1")
+			if (!cs.relayGameEvents) {
+				cs.relayGameEvents = true
+				fmt.Println("Game event relaying enabled.")
+			}
+			cs.rc.WriteData("say Going Live on 1 restart..")
+			cs.rc.WriteData("mp_restartgame 3")
 			cs.rc.WriteData("say LIVE! LIVE! LIVE! Good luck and have fun")
 			irc.SendToChannel("*** MATCH HAS GONE LIVE.")
 			return;
@@ -426,12 +431,14 @@ func (irc *IRC) HandleCSBuffer(csBuffer []string, cs CS) {
 			if irc.ScoreM.FirstHalfStarted() && !irc.ScoreM.SecondHalfStarted() {
 				irc.ScoreM.ResetRoundCounter()
 				irc.ScoreM.SetFirstHalfStarted(false)
+				cs.relayGameEvents = false
 				cs.rc.WriteData("say First half has been cancelled. Please type !lo3 once all players are ready.")
 				irc.SendToChannel("*** First half has been cancelled.")
 				return;
-			} else if irc.ScoreM.firstHalfStarted && irc.ScoreM.secondHalfStarted {
+			} else if irc.ScoreM.FirstHalfStarted() && irc.ScoreM.SecondHalfStarted() {
 				irc.ScoreM.ResetRoundCounter();
 				irc.ScoreM.SetSecondHalfStarted(false)
+				cs.relayGameEvents = false
 				cs.rc.WriteData("say Second half has been cancelled. Please type !lo3 once all players are ready.")
 				irc.SendToChannel("*** Second half has been cancelled.")
 				return;
@@ -455,7 +462,7 @@ func (irc *IRC) HandleCSBuffer(csBuffer []string, cs CS) {
 			}
 		}
 	}
-	if (len(csBuffer) >= 14) {
+	if len(csBuffer) >= 14 && cs.relayGameEvents {
 		if (csBuffer[8] == "killed") {
 			player1,_,_,team1 := GetPlayerInfo(csBuffer[4])
 			player2,_,_,team2 := GetPlayerInfo(csBuffer[9])
