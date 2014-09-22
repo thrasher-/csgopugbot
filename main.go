@@ -4,43 +4,27 @@ import (
 	"fmt"
 	"time"
 	"strings"
-	"log"
 )
 
 
 func main() {
 
-	mconfig := make(map[string]string)
-	fmt.Printf("Loading Config\n")
-	lines, err := readConfig("config.ini")
+	fmt.Println("Loading config file config.ini..")
+	config, err :=ProcessConfig("config.ini")
+
 	if err != nil {
-		log.Fatalf("Error Reading Config File")
+		fmt.Println("Fatal error opening config.ini file. Please ensure that the config file exists in the same directory as the PUGbot executable.")
+		return;
 	}
-	for _, line := range lines {
-		if strings.Contains(line, "server="){
-			mconfig["server"] = strings.TrimPrefix(line, "server=")
-		}
-		if strings.Contains(line, "password="){
-			mconfig["password"] = strings.TrimPrefix(line, "password=")
-		}
-		if strings.Contains(line, "nickname="){
-			mconfig["nickname"] = strings.TrimPrefix(line, "nickname=")
-		}
-		if strings.Contains(line, "username="){
-			mconfig["username"] = strings.TrimPrefix(line, "username=")
-		}
-		if strings.Contains(line, "channel="){
-			mconfig["channel"] = strings.TrimPrefix(line, "channel=")
-		}
-	}
-	fmt.Println(mconfig["server"], mconfig["password"], mconfig["nickname"], mconfig["channel"]) //for ze testing
+
+	fmt.Println("Config file loaded.")
 	
 	irc := IRC{
-		mconfig["server"], //server
-		mconfig["password"], //password
-		mconfig["nickname"],  //nickname
-		mconfig["username"], //username
-		mconfig["channel"], //channel
+		config["ircServer"], //server
+		config["ircPassword"], //password
+		config["ircNickname"],  //nickname
+		config["ircUsername"], //username
+		config["ircChannel"], //channel
 		nil,  // net.Conn
 		false, //irc connected
 		false, //irc protocol debug
@@ -53,10 +37,9 @@ func main() {
 		ScoreManager{},
 	}
 
-	irc.pug.SetAllowedMaps([]string{"de_dust2", "de_inferno", "de_nuke", "de_train", "de_mirage", "de_overpass", "de_cobblestone"})
-	irc.cs.rconPassword = "Gibson"
-	irc.cs.csServer = "192.168.182.1:27015"
-	irc.cs.serverPassword = "Gibson"
+	irc.pug.SetAllowedMaps(strings.Split(config["csMaps"], ","))
+	irc.cs.rconPassword = config["csRconPassword"]
+	irc.cs.csServer = config["csServer"]
 	irc.cs.listenAddress = ":1337"
 
 	if (irc.cs.ConnectToRcon()) {
