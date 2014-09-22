@@ -3,17 +3,28 @@ package main
 import (
 	"fmt"
 	"time"
+	"strings"
 )
 
 
 func main() {
 
+	fmt.Println("Loading config file config.ini..")
+	config, err :=ProcessConfig("config.ini")
+
+	if err != nil {
+		fmt.Println("Fatal error opening config.ini file. Please ensure that the config file exists in the same directory as the PUGbot executable.")
+		return;
+	}
+
+	fmt.Println("Config file loaded.")
+	
 	irc := IRC{
-		"irc.freenode.net:6667", //server
-		"", //password
-		"PugBotTest",  //nickname
-		"0 0 0 0", //username
-		"#PugBotTest", //channel
+		config["ircServer"], //server
+		config["ircPassword"], //password
+		config["ircNickname"],  //nickname
+		config["ircUsername"], //username
+		config["ircChannel"], //channel
 		nil,  // net.Conn
 		false, //irc connected
 		false, //irc protocol debug
@@ -26,9 +37,9 @@ func main() {
 		ScoreManager{},
 	}
 
-	irc.pug.SetAllowedMaps([]string{"de_dust2", "de_inferno", "de_nuke", "de_train", "de_mirage", "de_overpass", "de_cobblestone"})
-	irc.cs.rconPassword = "Gibson"
-	irc.cs.csServer = "192.168.0.50:27016"
+	irc.pug.SetAllowedMaps(strings.Split(config["csMaps"], ","))
+	irc.cs.rconPassword = config["csRconPassword"]
+	irc.cs.csServer = config["csServer"]
 	irc.cs.listenAddress = ":1337"
 	irc.cs.pugAdminPassword = "admin123"
 
@@ -85,5 +96,4 @@ func main() {
 		return;
 	}
 }
-
 
