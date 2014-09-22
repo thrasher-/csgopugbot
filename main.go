@@ -41,6 +41,7 @@ func main() {
 	irc.cs.rconPassword = config["csRconPassword"]
 	irc.cs.csServer = config["csServer"]
 	irc.cs.listenAddress = ":1337"
+	irc.cs.pugAdminPassword = "admin123"
 
 	if (irc.cs.ConnectToRcon()) {
 		if (irc.cs.StartUDPServer()) {
@@ -52,13 +53,13 @@ func main() {
 						fmt.Printf("Error with receiving CS UDP server buffer.")
 						break;
 					}
-					irc.HandleCSBuffer(r, irc.cs)
+					irc.HandleCSBuffer(r, &irc.cs)
 				}
 			}()
 			irc.cs.rc.WriteData("say PugBot connected")
 			irc.cs.EnableLogging()
-			irc.cs.ProtocolDebug = true
-			irc.cs.pugPassword = "test123"
+			irc.cs.relayGameEvents = false
+			irc.cs.ProtocolDebug = false
 
 			if (!irc.connected) {
 				if (irc.ConnectToServer()) {

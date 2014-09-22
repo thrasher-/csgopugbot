@@ -67,6 +67,7 @@ func (irc *IRC) PingLoop() {
 			irc.pingTime = time.Now()
 			irc.WriteData("PING :TIMEOUTCHECK\r\n")
 			irc.pingSent = true
+			irc.pongReceived = false
 		} else {
 			if time.Since(irc.pingTime) / time.Second >= 10 && !irc.pongReceived {
 				fmt.Println("IRC connection has timed out.")
@@ -232,12 +233,16 @@ func (irc *IRC) HandleIRCEvents(ircBuffer string) {
 						}
 						irc.SendToChannel("The PUG is now full! The server information will be messaged to you.")
 						irc.pug.RandomisePlayerList()
+						irc.cs.rc.WriteData("changelevel %s", irc.pug.GetMap())
+						irc.cs.serverPassword = irc.pug.GenerateRandomPassword("pug")
+						irc.cs.rc.WriteData("sv_password %s", irc.cs.serverPassword)
+						irc.cs.pugAdminPassword = irc.pug.GenerateRandomPassword("admin")
 						players := irc.pug.GetPlayers()
 						irc.SendToChannel("The teams are as follows. Terrorists: %s Counter-Terrorists: %s", strings.Join(players[0:5], " "), strings.Join(players[5:10], " "))
-						
+
 						for i := range players {
 							if players[i] == irc.pug.GetAdmin() {
-								irc.WriteData("PRIVMSG %s :PUG details are: connect %s; password %s. PUG Admin password: %s (type !login <password> in game and !lo3 once all players are ready).\r\n", players[i], irc.cs.csServer, irc.cs.serverPassword, irc.cs.pugPassword)
+								irc.WriteData("PRIVMSG %s :PUG details are: connect %s; password %s. PUG Admin password: %s (type !login <password> in game and !lo3 once all players are ready).\r\n", players[i], irc.cs.csServer, irc.cs.serverPassword, irc.cs.pugAdminPassword)
 							} else {
 								irc.WriteData("PRIVMSG %s :PUG details are: connect %s; password %s.\r\n", players[i], irc.cs.csServer, irc.cs.serverPassword)
 							}
