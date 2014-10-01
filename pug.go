@@ -142,8 +142,12 @@ func (p *PUG) EndPug() {
 	p.players = nil
 }
 
-func (p *PUG) SetAllowedMaps(maps []string) {
+func (p *PUG) SetAllowedMaps(maps []string)  {
 	p.validMaps = maps;
+}
+
+func (p *PUG) GetValidMaps() string {
+	return strings.Join(p.validMaps, " ")
 }
 
 func (p *PUG) IsValidMap(mapName string) bool {

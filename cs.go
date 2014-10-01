@@ -423,7 +423,7 @@ func (irc *IRC) HandleCSBuffer(csBuffer []string, cs *CS) {
 		} else if (msg[0] == "!restart") {
 			if irc.ScoreM.FirstHalfStarted() || irc.ScoreM.SecondHalfStarted() {
 				cs.rc.WriteData("say You are unable to restart the round once the game has gone live.")
-				return;
+				return
 			}
 			cs.rc.WriteData("mp_restartgame 1")
 			return;
@@ -434,21 +434,27 @@ func (irc *IRC) HandleCSBuffer(csBuffer []string, cs *CS) {
 				cs.relayGameEvents = false
 				cs.rc.WriteData("say First half has been cancelled. Please type !lo3 once all players are ready.")
 				irc.SendToChannel("*** First half has been cancelled.")
-				return;
+				return
 			} else if irc.ScoreM.FirstHalfStarted() && irc.ScoreM.SecondHalfStarted() {
 				irc.ScoreM.ResetRoundCounter();
 				irc.ScoreM.SetSecondHalfStarted(false)
 				cs.relayGameEvents = false
 				cs.rc.WriteData("say Second half has been cancelled. Please type !lo3 once all players are ready.")
 				irc.SendToChannel("*** Second half has been cancelled.")
-				return;
+				return
 			}
 		} else if (msg[0] == "!map" && len(msg) > 1) {
 			if irc.ScoreM.FirstHalfStarted() || irc.ScoreM.SecondHalfStarted() {
 				cs.rc.WriteData("say You are unable to change the map once the game has gone live.")
-				return;
+				return
 			}
+
 			mapName := msg[1];
+			if !irc.pug.IsValidMap(mapName) {
+				cs.rc.WriteData("Invalid map selection. Please select a map from the following: %s ", irc.pug.GetValidMaps())
+				return
+			}
+
 			cs.rc.WriteData("say Changing map to '%s'.", mapName)
 			cs.rc.WriteData("changelevel %s", mapName)
 			irc.SendToChannel("PUG admin changed level to %s", mapName)
