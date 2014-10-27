@@ -9,25 +9,25 @@ import (
 	"regexp"
 )
 
+var irc *IRC
+
 type Message struct {
 	nickname, host, destination, message string
 }
 
 type IRC struct {
-	server, password, nickname, username, channel string
+	server, password, nickname, username, internalIP, externalIP string
+	ircChannels []Channels
 	socket net.Conn
 	connected, ProtocolDebug bool
-
+	msg Message
 	pingTime time.Time
 	pingSent, pongReceived, joinedChannel bool
-	pug PUG
-	cs CS
-	ScoreM ScoreManager
 }
 
-func (irc *IRC) SendToChannel(data string, v ...interface{}) {
+func (irc *IRC) SendToChannel(channel, data string, v ...interface{}) {
 	buffer := fmt.Sprintf(data, v...)
-	s := fmt.Sprintf("PRIVMSG %s :%s\r\n", irc.channel, buffer)
+	s := fmt.Sprintf("PRIVMSG %s :%s\r\n", channel, buffer)
 	_, err := irc.socket.Write([]byte(s))
 
 	if err != nil {
@@ -49,6 +49,38 @@ func (irc *IRC) WriteData(data string, v ...interface{}) {
 
 	buffer = strings.Trim(buffer, "\r\n")
 	fmt.Printf("Sending: %s\n", buffer)
+}
+
+func (irc *IRC) IRCLoop() {
+	for {
+		if (!irc.connected) {
+			if irc.ConnectToServer() {
+				fmt.Println("Connected to IRC server!")
+
+				if (len(irc.password) > 0) {
+					irc.WriteData("PASS %s\r\n", irc.password)
+				}
+
+				irc.WriteData("NICK %s\r\n", irc.nickname)
+				irc.WriteData("USER %s %s %s %s\r\n", irc.username, irc.username, irc.username, irc.username)
+				fmt.Println("Starting ping check loop...")
+
+				go irc.PingLoop()
+
+				for {
+					if (!irc.connected) {
+						fmt.Println("Connection to IRC server has been lost.")
+						break
+					} else {
+						irc.RecvData()
+					}
+				} 
+			} else {
+				fmt.Println("Sleeping for 5 minutes before reconection.")
+				time.Sleep(time.Minute * 5)
+			}
+		}
+	}
 }
 
 func (irc *IRC) PingLoop() {
@@ -158,15 +190,17 @@ func (irc *IRC) HandleIRCEvents(ircBuffer string) {
 	for _, match := range matches {
 		switch match[2] {
 		case "001":
-			irc.WriteData("JOIN %s\r\n", irc.channel)
+			for i := 0; i < len(irc.ircChannels); i++ {
+				irc.WriteData("JOIN %s %s\r\n", irc.ircChannels[i].Channel, irc.ircChannels[i].Password)
+			}
 			irc.joinedChannel = true
 			irc.WriteData("USERHOST %s\r\n", irc.nickname)
 		case "433":
 			irc.nickname = irc.nickname + "`"
 			irc.WriteData("NICK %s\r\n", irc.nickname)
 		case "302":
-			irc.cs.externalIP = strings.Split(match[4], "@")[1]
-			fmt.Printf("Received external IP: %s\n", irc.cs.externalIP)
+			irc.externalIP = strings.Split(match[4], "@")[1]
+			fmt.Printf("Received external IP: %s\n", irc.externalIP)
 		case "PING":
 			irc.WriteData("%s\r\n", strings.Replace(match[0], "PING", "PONG", 1))
 		case "PONG":
@@ -174,118 +208,158 @@ func (irc *IRC) HandleIRCEvents(ircBuffer string) {
 				irc.pongReceived = true
 			}
 		case "NICK":
-			if !irc.pug.PugStarted() {
+			nickname := strings.Split(match[0], "!")[0]
+			nickname = nickname[1:]
+			pug, success := GetPugByPlayer(nickname)
+
+			if !success {
 				return
 			}
 
-			nickname := strings.Split(match[1], "!")[0]
-			irc.pug.UpdatePlayerNickname(nickname, match[4])
+			pug.UpdatePlayerNickname(nickname, match[4])
 		case "PART", "QUIT":
-			if !irc.pug.PugStarted() {
+			nickname := strings.Split(match[0], "!")[0]
+			nickname = nickname[1:]
+			pug, success := GetPugByPlayer(nickname)
+
+			if !success {
 				return
 			}
 
-			nickname := strings.Split(match[1], "!")[0]
-			if irc.pug.LeavePug(nickname) {
-				if irc.pug.GetPlayerCount() == 0 {
-					irc.SendToChannel("The PUG admin has left the PUG and there are no other plays to assign the admin rights to. Type !pug <map> to start a new one.")
-					irc.pug.EndPug()
+			channel := pug.GetIRCChannel()
+
+			if pug.LeavePug(nickname) {
+				if pug.GetPlayerCount() == 0 {
+					irc.SendToChannel(channel, "The PUG admin has left the PUG and there are no other plays to assign the admin rights to. Type !pug <map> to start a new one.")
+					pug.EndPug()
+					DeletePug(pug.GetPugID())
 				} else {
-					if irc.pug.GetAdmin() == nickname {
-						irc.pug.AssignNewAdmin()
-						irc.SendToChannel("The PUG administrator has left the pug and %s has been asigned as the PUG admin.", irc.pug.GetAdmin())
+					if pug.GetAdmin() == nickname {
+						pug.AssignNewAdmin()
+						irc.SendToChannel(channel, "The PUG administrator has left the pug and %s has been asigned as the PUG admin.", pug.GetAdmin())
 					} else {
-						irc.SendToChannel("%s has left the pug, [%d/10]", nickname, irc.pug.GetPlayerCount())
+						irc.SendToChannel(channel, "%s has left the pug, [%d/10]", nickname, pug.GetPlayerCount())
 					}
 				}
 			}
 		case "PRIVMSG":
 			nickname := strings.Split(match[1], "!")[0]
 			host := strings.Split(match[1], "@")[1]
-			destination := match[2]
+			destination := match[3]
 			msgBuf := match[4]
 			message := strings.Split(msgBuf, " ")
-			msg := Message{nickname, host, destination, msgBuf}
-			fmt.Println(msg)
+			irc.msg = Message{nickname, host, destination, msgBuf}
+
+			fmt.Println(destination)
+
+			if !strings.Contains(destination, "#") {
+				return;
+			}
+
+			_, pugStarted := GetPugByChannel(destination)
 
 			if message[0] == "!pug" {
-				if irc.pug.PugStarted() {
-					irc.SendToChannel("A PUG has already been started, please wait until the next PUG has started.")
+				if pugStarted {
+					irc.SendToChannel(destination, "A PUG has already been started, please wait until the next PUG has started.")
 					return
 				}
+
+				p := &PUG{}
+
 				if len(message) > 1 {
 					s := message[1]
-					if !irc.pug.IsValidMap(s) {
-						irc.pug.SetMap("de_dust2")
+					if !IsValidMap(s) {
+						p.SetMap("de_dust2")
 					} else {
-						irc.pug.SetMap(s)
+						p.SetMap(s)
 					}
 				}
-				irc.pug.StartPug()
-				irc.pug.JoinPug(nickname)
-				irc.SendToChannel("A PUG has been started on map %s, type !join to join the pug", irc.pug.GetMap())
+				p.StartPug()
+				p.SetIRCChannel(destination)
+				p.JoinPug(nickname)
+				NewPug(p)
+				irc.SendToChannel(destination, "A PUG has been started on map %s, type !join to join the pug", p.GetMap())
 			} else if message[0] == "!join" {
-				if irc.pug.PugStarted() {
-					if irc.pug.JoinPug(nickname) {
-						irc.SendToChannel("%s has joined the pug! [%d/10]", nickname, irc.pug.GetPlayerCount())
-						if irc.pug.GetPlayerCount() < 10 {
+				if pugStarted {
+					pug, _ := GetPugByChannel(destination)
+					if pug.JoinPug(nickname) {
+						irc.SendToChannel(destination, "%s has joined the pug! [%d/10]", nickname, pug.GetPlayerCount())
+						if pug.GetPlayerCount() < 10 {
 							return
 						}
-						irc.SendToChannel("The PUG is now full! The server information will be messaged to you.")
-						irc.pug.RandomisePlayerList()
-						irc.cs.rc.WriteData("changelevel %s", irc.pug.GetMap())
-						irc.cs.serverPassword = irc.pug.GenerateRandomPassword("pug")
-						irc.cs.rc.WriteData("sv_password %s", irc.cs.serverPassword)
-						irc.cs.pugAdminPassword = irc.pug.GenerateRandomPassword("admin")
-						players := irc.pug.GetPlayers()
-						irc.SendToChannel("The teams are as follows. Terrorists: %s Counter-Terrorists: %s", strings.Join(players[0:5], " "), strings.Join(players[5:10], " "))
+						irc.SendToChannel(destination, "The PUG is now full! The server information will be messaged to you.")
+						pug.RandomisePlayerList()
+						cs, success := GetFreeServer("Sydney") // to-do - obtain channel region
+					
+						if !success {
+							fmt.Println("Unable to find server")
+							return
+						}
+
+						cs.SetInUseStatus(true)
+						cs.SetIRCChannel(destination)
+						fmt.Printf("Assigned server ID, region %s to pug ID %s with channel %s", cs.GetRegion(), pug.GetPugID(), destination)
+						cs.rc.WriteData("changelevel %s", pug.GetMap())
+						cs.serverPassword = pug.GenerateRandomPassword("pug")
+						cs.rc.WriteData("sv_password %s", cs.serverPassword)
+						cs.pugAdminPassword = pug.GenerateRandomPassword("admin")
+						players := pug.GetPlayers()
+						irc.SendToChannel(destination, "The teams are as follows. Terrorists: %s Counter-Terrorists: %s", strings.Join(players[0:5], " "), strings.Join(players[5:10], " "))
 
 						for i := range players {
-							if players[i] == irc.pug.GetAdmin() {
-								irc.WriteData("PRIVMSG %s :PUG details are: connect %s; password %s. PUG Admin password: %s (type !login <password> in game and !lo3 once all players are ready).\r\n", players[i], irc.cs.csServer, irc.cs.serverPassword, irc.cs.pugAdminPassword)
+							if players[i] == pug.GetAdmin() {
+								irc.WriteData("PRIVMSG %s :PUG details are: connect %s; password %s. PUG Admin password: %s (type !login <password> in game and !lo3 once all players are ready).\r\n", players[i], cs.serverIP, cs.serverPassword, cs.pugAdminPassword)
 							} else {
-								irc.WriteData("PRIVMSG %s :PUG details are: connect %s; password %s.\r\n", players[i], irc.cs.csServer, irc.cs.serverPassword)
+								irc.WriteData("PRIVMSG %s :PUG details are: connect %s; password %s.\r\n", players[i], cs.serverIP, cs.serverPassword)
 							}
 						}
 					}
 				} else {
-					irc.SendToChannel("A PUG has not been started, type !pug <map> to start a new one.")
+					irc.SendToChannel(destination, "A PUG has not been started, type !pug <map> to start a new one.")
 					return
 				}
 			} else if message[0] == "!leave" {
-				if irc.pug.PugStarted() {
-					if irc.pug.LeavePug(nickname) {
-						if irc.pug.GetPlayerCount() == 0 {
-							irc.SendToChannel("The PUG admin has left the PUG and there are no other plays to assign the admin rights to. Type !pug <map> to start a new one.")
-							irc.pug.EndPug()
+				if pugStarted {
+					pug, _ := GetPugByChannel(destination)
+					if pug.LeavePug(nickname) {
+						if pug.GetPlayerCount() == 0 {
+							irc.SendToChannel(destination, "The PUG admin has left the PUG and there are no other plays to assign the admin rights to. Type !pug <map> to start a new one.")
+							pug.EndPug()
+							DeletePug(pug.GetPugID())
 						} else {
-							if irc.pug.GetAdmin() == nickname {
-								irc.pug.AssignNewAdmin()
-								irc.SendToChannel("The PUG administrator has left the pug and %s has been asigned as the PUG admin.", irc.pug.GetAdmin())
+							if pug.GetAdmin() == nickname {
+								pug.AssignNewAdmin()
+								irc.SendToChannel(destination, "The PUG administrator has left the pug and %s has been asigned as the PUG admin.", pug.GetAdmin())
 							} else {
-								irc.SendToChannel("%s has left the pug, [%d/10]", nickname, irc.pug.GetPlayerCount())
+								irc.SendToChannel(destination, "%s has left the pug, [%d/10]", nickname, pug.GetPlayerCount())
 							}
 						}
 					}
 				} else {
-					irc.SendToChannel("A PUG has not been started, type !pug <map> to start a new one.")
+					irc.SendToChannel(destination, "A PUG has not been started, type !pug <map> to start a new one.")
 					return
 				}
 			} else if message[0] == "!stats" {
-				irc.SendToChannel("Stats for player %s can be visited here: http://www.cs-stats.com/player/xxxxxx", nickname)
+				irc.SendToChannel(destination, "Stats for player %s can be visited here: http://www.cs-stats.com/player/xxxxxx", nickname)
 				return
 			} else if message[0] == "!players" {
-				if irc.pug.PugStarted() {
-					irc.SendToChannel("Player list: %s [%d/10]", strings.Join(irc.pug.GetPlayers(), " "), irc.pug.GetPlayerCount())
+				if pugStarted {
+					pug, _ := GetPugByChannel(destination)
+					irc.SendToChannel(destination, "Player list: %s [%d/10]", strings.Join(pug.GetPlayers(), " "), pug.GetPlayerCount())
 					return
 				}
 			} else if message[0] == "!say" {
-				if irc.cs.rconConnected {
-					if len(message) > 1 {
-						s := strings.Join(message[1:], " ")
-						irc.cs.rc.WriteData("say [IRC] %s", s)
-						irc.SendToChannel("Sent message to CS server.")
+				if len(message) > 1 {
+					cs, success := GetServerByChannel(destination)
+					
+					if !success {
+						fmt.Println("Unable to find server")
+						return
 					}
+
+					s := strings.Join(message[1:], " ")
+					cs.rc.WriteData("say [IRC] %s", s)
+					irc.SendToChannel(destination, "Sent message to CS server.")
 				}
 			}
 		}

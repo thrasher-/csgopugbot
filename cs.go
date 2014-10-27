@@ -1,178 +1,146 @@
 package main
 
 import (
-	"bytes"
-	"encoding/binary"
 	"errors"
-	"io"
 	"net"
-	"sync"
 	"fmt"
 	"strings"
 	"strconv"
-	"sync/atomic"
 	"time"
 )
 
-const (
-	SERVERDATA_AUTH = 3
-	SERVERDATA_EXECCOMMAND = 2
-	SERVERDATA_AUTH_RESPONSE = 0
-	SERVERDATA_RESPONSE_VALUE = 2
-)
-
-const readBufferSize = 4110
-
-// RCON Protocol specs can be found here: https://developer.valvesoftware.com/wiki/Source_RCON_Protocol
-// Thanks to https://github.com/james4k/ (james4k) for some of the RCON functions
+var csManager []*CS
 
 type CS struct {
-	listenAddress, rconPassword, serverPassword, pugAdminPassword, authSteamID, localIP, externalIP, csServer string
+	pugID int
+	serverID int
+	InUse, log bool
 	SrvSocket *net.UDPConn
-	socket net.Conn
 	rc RemoteConsole
-	rconConnected, ProtocolDebug, relayGameEvents bool
+	sm ScoreManager
+	serverIP, rconPassword, localIP, serverPassword, listenAddress, region, pugAdminPassword, authSteamID, ircChannel, externalIP string
 }
 
-type RemoteConsole struct {
-	conn      net.Conn
-	readbuf   []byte
-	readmu    sync.Mutex
-	reqid     int32
-	queuedbuf []byte
+func GetFreeServer(region string) (*CS, bool) {
+	for i := range csManager {
+		if !csManager[i].InUse && csManager[i].region == region {
+			return csManager[i], true
+		}
+	}
+	return nil, false
 }
 
-var (
-	ErrAuthFailed          = errors.New("rcon: authentication failed")
-	ErrInvalidAuthResponse = errors.New("rcon: invalid response type during auth")
-	ErrUnexpectedFormat    = errors.New("rcon: unexpected response format")
-	ErrResponseTooLong     = errors.New("rcon: response too long")
-)
-
-func (r *RemoteConsole) WriteData(data string, v ...interface{}) (requestId int, err error){
-	buffer := fmt.Sprintf(data, v...)
-	fmt.Printf("Sent(RCON): %s\n", buffer)
-	return r.writeCmd(SERVERDATA_EXECCOMMAND, buffer)
+func GetServerByID(serverID int) (*CS, bool) {
+	for i := range csManager {
+		if csManager[i].serverID == serverID {
+			return csManager[i], true
+		}
+	}
+	return nil, false
 }
 
-func (r *RemoteConsole) Read() (response string, requestId int, err error) {
-	var respType int
-	var respBytes []byte
-	respType, requestId, respBytes, err = r.readResponse(2 * time.Minute)
-	if err != nil || respType != SERVERDATA_RESPONSE_VALUE {
-		response = ""
-		requestId = 0
+func GetServerByChannel(channel string) (*CS, bool) {
+	for i := range csManager {
+		if csManager[i].ircChannel == channel {
+			return csManager[i], true
+		}
+	}
+	return nil, false
+}
+
+func SetupAndTestCSServers(csServers []CSServers) (bool) {
+	success := 0
+
+	for i := 0; i < len(csServers); i++ {
+		if NewCSServer(csServers[i].Server, csServers[i].RconPassword, "", csServers[i].ListenAddress, csServers[i].Region, "", csServers[i].Log) {
+			success++
+		}
+	}
+
+	if success == 0 {
+		fmt.Println("Fatal error, unable to connect to any servers.")
+		return false
+	}
+	return true
+}
+
+func GetCSServerCount() (int) {
+	return len(csManager)
+}
+
+func NewCSServer(serverIP, rconPassword, serverPassword, listenAddress, region, ircChannel string, log bool) (bool) {
+	cs := &CS{}
+
+	if (len(csManager) == 0) {
+		cs.serverID = 0
 	} else {
-		response = string(respBytes)
+		cs.serverID = len(csManager)
 	}
-	return
-}
 
-func (r *RemoteConsole) Close() error {
-	return r.conn.Close()
-}
+	cs.serverIP = serverIP
+	cs.rconPassword = rconPassword
 
-func newRequestId(id int32) int32 {
-	if id&0x0fffffff != id {
-		return int32((time.Now().UnixNano() / 100000) % 100000)
+	if !cs.ConnectToRcon() {
+		fmt.Printf("Fatal error, unable to connect to CS server %s\n", serverIP)
+		return false
 	}
-	return id + 1
+
+	cs.listenAddress = listenAddress
+	if !cs.StartUDPServer() {
+		fmt.Printf("Fatal error, unable to bind UDP server %s", listenAddress)
+		return false
+	}
+
+	cs.serverPassword = serverPassword
+	cs.InUse = false
+	cs.log = log
+	cs.ircChannel = ircChannel
+
+	cs.EnableLogging()
+	go cs.RecvData()
+	csManager = append(csManager, cs)
+	return true
 }
 
-func (r *RemoteConsole) writeCmd(cmdType int32, str string) (int, error) {
-	buffer := bytes.NewBuffer(make([]byte, 0, 14+len(str)))
-	reqid := atomic.LoadInt32(&r.reqid)
-	reqid = newRequestId(reqid)
-	atomic.StoreInt32(&r.reqid, reqid)
-
-	binary.Write(buffer, binary.LittleEndian, int32(10+len(str)))
-	binary.Write(buffer, binary.LittleEndian, int32(reqid))
-	binary.Write(buffer, binary.LittleEndian, int32(cmdType))
-	buffer.WriteString(str)
-	binary.Write(buffer, binary.LittleEndian, byte(0))
-	binary.Write(buffer, binary.LittleEndian, byte(0))
-
-	r.conn.SetWriteDeadline(time.Now().Add(10 * time.Second))
-	_, err := r.conn.Write(buffer.Bytes())
-	return int(reqid), err
+func GetServer(serverID int) (*CS) {
+	return csManager[serverID]
 }
 
-func (r *RemoteConsole) readResponse(timeout time.Duration) (int, int, []byte, error) {
-	r.readmu.Lock()
-	defer r.readmu.Unlock()
-
-	r.conn.SetReadDeadline(time.Now().Add(timeout))
-	var size int
-	var err error
-	if r.queuedbuf != nil {
-		copy(r.readbuf, r.queuedbuf)
-		size = len(r.queuedbuf)
-		r.queuedbuf = nil
-	} else {
-		size, err = r.conn.Read(r.readbuf)
-		if err != nil {
-			return 0, 0, nil, err
+func DeleteServer(serverID int) {
+	for i := range csManager {
+		if (serverID == csManager[i].GetServerID()) {
+			csManager = append(csManager[:i], csManager[i+1:]...)
+			return
 		}
 	}
-	if size < 4 {
-		// need the 4 byte packet size...
-		s, err := r.conn.Read(r.readbuf[size:])
-		if err != nil {
-			return 0, 0, nil, err
-		}
-		size += s
-	}
-
-	var dataSize32 int32
-	b := bytes.NewBuffer(r.readbuf[:size])
-	binary.Read(b, binary.LittleEndian, &dataSize32)
-	if dataSize32 < 10 {
-		return 0, 0, nil, ErrUnexpectedFormat
-	}
-
-	totalSize := size
-	dataSize := int(dataSize32)
-	if dataSize > 4106 {
-		return 0, 0, nil, ErrResponseTooLong
-	}
-
-	for dataSize+4 > totalSize {
-		size, err := r.conn.Read(r.readbuf[totalSize:])
-		if err != nil {
-			return 0, 0, nil, err
-		}
-		totalSize += size
-	}
-
-	data := r.readbuf[4 : 4+dataSize]
-	if totalSize > dataSize+4 {
-		// start of the next buffer was at the end of this packet.
-		// save it for the next read.
-		r.queuedbuf = r.readbuf[4+dataSize : totalSize]
-	}
-
-	return r.readResponseData(data)
 }
 
-func (r *RemoteConsole) readResponseData(data []byte) (int, int, []byte, error) {
-	var requestId, responseType int32
-	var response []byte
-	b := bytes.NewBuffer(data)
-	binary.Read(b, binary.LittleEndian, &requestId)
-	binary.Read(b, binary.LittleEndian, &responseType)
-	response, err := b.ReadBytes(0x00)
-	if err != nil && err != io.EOF {
-		return 0, 0, nil, err
-	}
-	if err == nil {
-		// if we didn't hit EOF, we have a null byte to remove
-		response = response[:len(response)-1]
-	}
-	return int(responseType), int(requestId), response, nil
+func (cs *CS) GetRegion() (string) {
+	return cs.region
 }
 
+func (cs *CS) SetInUseStatus(inUse bool) {
+	cs.InUse = inUse
+}
+
+func (cs *CS) GetServerIP() (string) {
+	return cs.serverIP
+}
+
+func (cs *CS) SetIRCChannel(channel string) {
+	cs.ircChannel = channel
+}
+
+func (cs *CS) GetIRCChannel() (string) {
+	return cs.ircChannel
+}
+
+func (cs *CS) GetServerID() (int) {
+	return cs.serverID
+}
 
 func (cs *CS) StartUDPServer() bool {
+	fmt.Printf("Starting UDP server on %s", cs.listenAddress)
 	addr, err := net.ResolveUDPAddr("udp", cs.listenAddress)
 
 	if err != nil {
@@ -201,10 +169,10 @@ func (cs *CS) EnableLogging() {
 func (cs *CS) ConnectToRcon() bool  {
 	const timeout = 10 * time.Second
 	err := errors.New("")
-	cs.rc.conn, err = net.Dial("tcp", cs.csServer)
+	cs.rc.conn, err = net.Dial("tcp", cs.serverIP)
 	
 	if err != nil {
-		fmt.Println("Unable to connect to RCON")
+		fmt.Println("Unable to connect to server RCON.")
 		return false
 	}
 
@@ -246,28 +214,27 @@ func (cs *CS) ConnectToRcon() bool  {
 
 	cs.localIP = strings.Split(cs.rc.conn.LocalAddr().String(), ":")[0]
 	fmt.Printf("Internal IP: %s\n", cs.localIP)
-	cs.rconConnected = true
 	return true
 }
 
-func (cs *CS) RecvData() ([]string, bool) {
-	buffer := make([]byte, 1024)
-	rlen, _, err := cs.SrvSocket.ReadFromUDP(buffer)
+func (cs *CS) RecvData() {
+	for {
+		buffer := make([]byte, 1024)
+		rlen, _, err := cs.SrvSocket.ReadFromUDP(buffer)
 
-	if err != nil {
-		fmt.Printf("Unable to read data from UDP socket. Error: %s\n", err)
-		return nil, false
+		if err != nil {
+			fmt.Printf("Unable to read data from UDP socket. Error: %s\n", err)
+			break;
+		}
+
+		s := string(buffer)
+		s = s[5:rlen-2]
+		fmt.Printf("Received %d bytes: (%s)\n", rlen, s)
+		cs.HandleCSBuffer(strings.Split(s, " "))
 	}
-
-	s := string(buffer)
-	s = s[5:rlen-2]
-	fmt.Printf("Received %d bytes: (%s)\n", rlen, s)
-	return strings.Split(s, " "), true
 }
 
 func GetPlayerInfo(playerInfo string) (string, string, string, string) {
-	// "Quinn<28><BOT><TERRORIST>";
-
 	if strings.Count(playerInfo, "<") == 0 {
 		return "", "", "", ""
 	}
@@ -281,8 +248,8 @@ func GetPlayerInfo(playerInfo string) (string, string, string, string) {
 	return player, playerID, steamID, team
 }
 
-func (irc *IRC) HandleCSBuffer(csBuffer []string, cs *CS) {
-	if (cs.ProtocolDebug) {
+func (cs *CS) HandleCSBuffer(csBuffer []string) {
+	if (cs.log) {
 		fmt.Printf("csBuffer size: %d\n", len(csBuffer))
 		for i, _ := range csBuffer {
 			fmt.Printf("csBuffer[%d] = %s\n", i, csBuffer[i])
@@ -296,76 +263,78 @@ func (irc *IRC) HandleCSBuffer(csBuffer []string, cs *CS) {
 		item := csBuffer[6][1:len(csBuffer[6])-1];
 		fmt.Printf("Player %s purchased %s\n", player, item)
 		return;
-	} else if csBuffer[5] == "triggered" && cs.relayGameEvents {
+	} else if csBuffer[5] == "triggered" && cs.log {
 		player,_,_,_ := GetPlayerInfo(csBuffer[4])
 		event := csBuffer[6][1:len(csBuffer[6])-1];
 
 		switch event {
 			case "Begin_Bomb_Defuse_Without_Kit": 
-				irc.SendToChannel("%s started bomb defuse without kit.", player)
+				irc.SendToChannel(irc.msg.destination, " %s started bomb defuse without kit.", player)
 			case "Begin_Bomb_Defuse_With_Kit":
-				irc.SendToChannel("%s started bomb defuse with kit.", player)
+				irc.SendToChannel(irc.msg.destination," %s started bomb defuse with kit.", player)
 			case "Dropped_The_Bomb":
-				irc.SendToChannel("%s dropped the bomb.", player)
+				irc.SendToChannel(irc.msg.destination," %s dropped the bomb.", player)
 			case "Planted_The_Bomb": 
-				irc.SendToChannel("%s planted the bomb.", player)
+				irc.SendToChannel(irc.msg.destination," %s planted the bomb.", player)
 			case "Got_The_Bomb":
-				irc.SendToChannel("%s picked up the bomb.", player)
+				irc.SendToChannel(irc.msg.destination," %s picked up the bomb.", player)
 			case "Defused_The_Bomb":
-				irc.SendToChannel("%s defused the bomb.", player)
+				irc.SendToChannel(irc.msg.destination, "%s defused the bomb.", player)
 			case "Round_Start":
-				irc.ScoreM.ResetRoundPlayersLeft()
+				cs.sm.ResetRoundPlayersLeft()
 			case "Round_End":
-				cs.rc.WriteData("say			CT Score (%d)  			T Score (%d)		", irc.ScoreM.GetCTScore(), irc.ScoreM.GetTScore())
-				irc.SendToChannel("			CT Score (%d)  			T Score (%d)		", irc.ScoreM.GetCTScore(), irc.ScoreM.GetTScore())
-				irc.SendToChannel("******************** ROUND ENDED ********************")
-				irc.SendToChannel("******************** ROUND STARTED ******************")
+				cs.rc.WriteData("say			CT Score (%d)  			T Score (%d)		", cs.sm.GetCTScore(), cs.sm.GetTScore())
+				irc.SendToChannel(irc.msg.destination, "			CT Score (%d)  			T Score (%d)		", cs.sm.GetCTScore(), cs.sm.GetTScore())
+				irc.SendToChannel(irc.msg.destination, "******************** ROUND ENDED ********************")
+				irc.SendToChannel(irc.msg.destination, "******************** ROUND STARTED ******************")
 		}
 		return;
-	} else if csBuffer[6] == "triggered" && cs.relayGameEvents {
+	} else if csBuffer[6] == "triggered" && cs.log {
 		event := csBuffer[7][1:len(csBuffer[7])-1];
 
 		switch event {
 			case "SFUI_Notice_Target_Bombed":
-				irc.ScoreM.SetTScore(irc.ScoreM.GetTScore()+1)
-				irc.SendToChannel("*** Target bombed successfully, the Terrorists win! ***")
+				cs.sm.SetTScore(cs.sm.GetTScore()+1)
+				irc.SendToChannel(irc.msg.destination, "*** Target bombed successfully, the Terrorists win! ***")
 			case "SFUI_Notice_Terrorists_Win":
-				irc.ScoreM.SetTScore(irc.ScoreM.GetTScore()+1)
-				irc.SendToChannel("******* All CT's eliminated, the Terrorists win! *******")
+				cs.sm.SetTScore(cs.sm.GetTScore()+1)
+				irc.SendToChannel(irc.msg.destination, "******* All CT's eliminated, the Terrorists win! *******")
 			case "SFUI_Notice_Bomb_Defused":
-				irc.ScoreM.SetCTScore(irc.ScoreM.GetCTScore()+1)
-				irc.SendToChannel("******* Bomb defused, the Counter-Terrorists win! ******")
+				cs.sm.SetCTScore(cs.sm.GetCTScore()+1)
+				irc.SendToChannel(irc.msg.destination, "******* Bomb defused, the Counter-Terrorists win! ******")
 			case "SFUI_Notice_CTs_Win":
-				irc.ScoreM.SetCTScore(irc.ScoreM.GetCTScore()+1)
-				irc.SendToChannel("*** All Terrorists eliminated, the Counter-Terrorists win! ***\n")
+				cs.sm.SetCTScore(cs.sm.GetCTScore()+1)
+				irc.SendToChannel(irc.msg.destination, "*** All Terrorists eliminated, the Counter-Terrorists win! ***\n")
 		}
 
-		if irc.ScoreM.FirstHalfStarted() {
-			if irc.ScoreM.GetCTScore() + irc.ScoreM.GetTScore() == 15 {
-				irc.SendToChannel("*** The first half has been completed.")
+		if cs.sm.FirstHalfStarted() {
+			if cs.sm.GetCTScore() + cs.sm.GetTScore() == 15 {
+				irc.SendToChannel(irc.msg.destination, "*** The first half has been completed.")
 				cs.rc.WriteData("say The first half has been completed.")
-				irc.ScoreM.SetFirstHalfT(irc.ScoreM.GetTScore())
-				irc.ScoreM.SetFirstHalfCT(irc.ScoreM.GetCTScore())
-				irc.ScoreM.SetTScore(0)
-				irc.ScoreM.SetCTScore(0)
+				cs.sm.SetFirstHalfT(cs.sm.GetTScore())
+				cs.sm.SetFirstHalfCT(cs.sm.GetCTScore())
+				cs.sm.SetTScore(0)
+				cs.sm.SetCTScore(0)
 			}
 		}
-		if irc.ScoreM.SecondHalfStarted() {
-			if irc.ScoreM.GetCTScore() + irc.ScoreM.GetFirstHalfT() == 16 {
-				irc.SendToChannel("MATCH COMPLETED SUCCESSFULLY. The score was %d - %d", irc.ScoreM.GetCTScore() + irc.ScoreM.GetFirstHalfT(), irc.ScoreM.GetTScore() + irc.ScoreM.GetFirstHalfCT())
-				cs.rc.WriteData("say MATCH COMPLETED SUCCESSFULLY. The Score was %d - %d", irc.ScoreM.GetCTScore() + irc.ScoreM.GetFirstHalfT(), irc.ScoreM.GetTScore() + irc.ScoreM.GetFirstHalfCT())
-			} else if irc.ScoreM.GetCTScore() + irc.ScoreM.GetFirstHalfT() == 15 {
-				irc.SendToChannel("MATCH COMPLETED SUCCESSFULLY. The match was a draw.")
+		if cs.sm.SecondHalfStarted() {
+			if cs.sm.GetCTScore() + cs.sm.GetFirstHalfT() == 16 {
+				irc.SendToChannel(irc.msg.destination, "MATCH COMPLETED SUCCESSFULLY. The score was %d - %d", cs.sm.GetCTScore() + cs.sm.GetFirstHalfT(), cs.sm.GetTScore() + cs.sm.GetFirstHalfCT())
+				cs.rc.WriteData("say MATCH COMPLETED SUCCESSFULLY. The Score was %d - %d", cs.sm.GetCTScore() + cs.sm.GetFirstHalfT(), cs.sm.GetTScore() + cs.sm.GetFirstHalfCT())
+			} else if cs.sm.GetCTScore() + cs.sm.GetFirstHalfT() == 15 {
+				irc.SendToChannel(irc.msg.destination, "MATCH COMPLETED SUCCESSFULLY. The match was a draw.")
 				cs.rc.WriteData("say MATCH COMPLETED SUCCESSFULLY. The match was a draw.")
-			} else if irc.ScoreM.GetTScore() + irc.ScoreM.GetFirstHalfCT()  == 16 {
-				irc.SendToChannel("MATCH COMPLETED SUCCESSFULLY. The score was %d - %d", irc.ScoreM.GetTScore() + irc.ScoreM.GetFirstHalfCT(), irc.ScoreM.GetCTScore() + irc.ScoreM.GetFirstHalfT())
-				cs.rc.WriteData("say MATCH COMPLETED SUCCESSFULLY. The Score was %d - %d", irc.ScoreM.GetTScore() + irc.ScoreM.GetFirstHalfCT(), irc.ScoreM.GetCTScore() + irc.ScoreM.GetFirstHalfT())
+			} else if cs.sm.GetTScore() + cs.sm.GetFirstHalfCT()  == 16 {
+				irc.SendToChannel(irc.msg.destination, "MATCH COMPLETED SUCCESSFULLY. The score was %d - %d", cs.sm.GetTScore() + cs.sm.GetFirstHalfCT(), cs.sm.GetCTScore() + cs.sm.GetFirstHalfT())
+				cs.rc.WriteData("say MATCH COMPLETED SUCCESSFULLY. The Score was %d - %d", cs.sm.GetTScore() + cs.sm.GetFirstHalfCT(), cs.sm.GetCTScore() + cs.sm.GetFirstHalfT())
 			}
 
-			if irc.ScoreM.MatchCompleted() {
-				irc.pug.EndPug()
-				irc.ScoreM.Reset()
-				irc.SendToChannel("The PUG has completed, type !pug <map> to start a new one!")
+			if cs.sm.MatchCompleted() {
+				pug, _ := GetPugByChannel(cs.ircChannel)
+				pug.EndPug()
+				DeletePug(pug.GetPugID())
+				cs.sm.Reset()
+				irc.SendToChannel(irc.msg.destination, "The PUG has completed, type !pug <map> to start a new one!")
 			}
 		}
 	} else if (csBuffer[5] == "say") {
@@ -378,10 +347,10 @@ func (irc *IRC) HandleCSBuffer(csBuffer []string, cs *CS) {
 		if (len(cs.authSteamID) == 0) {
 			if (msg[0] == "!login" && len(msg) > 1) {
 				password := msg[1];
-				fmt.Printf("IN-GAME AUTH request: comparing '%s' to '%s'", password, cs.pugAdminPassword)
+				fmt.Printf("IN-GAME AUTH request: comparing '%s' to '%s'\n", password, cs.pugAdminPassword)
 				if (password == cs.pugAdminPassword) {
 					cs.rc.WriteData("say PUG admin rights has been granted to %s", player)
-					irc.SendToChannel("PUG admin rights has been granted to %s", player)
+					irc.SendToChannel(irc.msg.destination, "PUG admin rights has been granted to %s", player)
 					cs.authSteamID = steamID
 					return;
 				}
@@ -396,79 +365,79 @@ func (irc *IRC) HandleCSBuffer(csBuffer []string, cs *CS) {
 			}
 		}
 		if (msg[0] == "!lo3") {
-			if !irc.ScoreM.FirstHalfStarted() && !irc.ScoreM.SecondHalfStarted() {
-				irc.ScoreM.ResetRoundCounter()
-				irc.ScoreM.SetFirstHalfStarted(true)
-			} else if irc.ScoreM.FirstHalfStarted() && irc.ScoreM.GetFirstHalfT() + irc.ScoreM.GetFirstHalfCT() < 15 {
+			if !cs.sm.FirstHalfStarted() && !cs.sm.SecondHalfStarted() {
+				cs.sm.ResetRoundCounter()
+				cs.sm.SetFirstHalfStarted(true)
+			} else if cs.sm.FirstHalfStarted() && cs.sm.GetFirstHalfT() + cs.sm.GetFirstHalfCT() < 15 {
 				cs.rc.WriteData("say First half has already commenced. If you wish to cancel the first half, please type !cancelhalf.")
 				return;
-			} else if irc.ScoreM.FirstHalfStarted() && irc.ScoreM.GetFirstHalfT() + irc.ScoreM.GetFirstHalfCT() == 15 {
-				irc.ScoreM.SetSecondHalfStarted(true)
+			} else if cs.sm.FirstHalfStarted() && cs.sm.GetFirstHalfT() + cs.sm.GetFirstHalfCT() == 15 {
+				cs.sm.SetSecondHalfStarted(true)
 				cs.rc.WriteData("say The second half has begun!")
-				irc.SendToChannel("The second half has begun!")
+				irc.SendToChannel(irc.msg.destination, "The second half has begun!")
 			}
-			if (!cs.relayGameEvents) {
-				cs.relayGameEvents = true
+			if (!cs.log) {
+				cs.log = true
 				fmt.Println("Game event relaying enabled.")
 			}
 			cs.rc.WriteData("say Going Live on 1 restart..")
 			cs.rc.WriteData("mp_restartgame 3")
 			cs.rc.WriteData("say LIVE! LIVE! LIVE! Good luck and have fun")
-			irc.SendToChannel("*** MATCH HAS GONE LIVE.")
+			irc.SendToChannel(irc.msg.destination, "*** MATCH HAS GONE LIVE.")
 			return;
 		} else if (msg[0] == "!request") {
 			cs.rc.WriteData("say Requesting for players on IRC.")
-			irc.SendToChannel("Need player! To join, use the connect string: connect %s; password %s", cs.csServer, cs.serverPassword)
+			irc.SendToChannel(irc.msg.destination, "Need player! To join, use the connect string: connect %s; password %s", cs.serverIP, cs.serverPassword)
 			return;
 		} else if (msg[0] == "!restart") {
-			if irc.ScoreM.FirstHalfStarted() || irc.ScoreM.SecondHalfStarted() {
+			if cs.sm.FirstHalfStarted() || cs.sm.SecondHalfStarted() {
 				cs.rc.WriteData("say You are unable to restart the round once the game has gone live.")
 				return
 			}
 			cs.rc.WriteData("mp_restartgame 1")
 			return;
 		} else if (msg[0] == "!cancelhalf") {
-			if irc.ScoreM.FirstHalfStarted() && !irc.ScoreM.SecondHalfStarted() {
-				irc.ScoreM.ResetRoundCounter()
-				irc.ScoreM.SetFirstHalfStarted(false)
-				cs.relayGameEvents = false
+			if cs.sm.FirstHalfStarted() && !cs.sm.SecondHalfStarted() {
+				cs.sm.ResetRoundCounter()
+				cs.sm.SetFirstHalfStarted(false)
+				cs.log = false
 				cs.rc.WriteData("say First half has been cancelled. Please type !lo3 once all players are ready.")
-				irc.SendToChannel("*** First half has been cancelled.")
+				irc.SendToChannel(irc.msg.destination, "*** First half has been cancelled.")
 				return
-			} else if irc.ScoreM.FirstHalfStarted() && irc.ScoreM.SecondHalfStarted() {
-				irc.ScoreM.ResetRoundCounter();
-				irc.ScoreM.SetSecondHalfStarted(false)
-				cs.relayGameEvents = false
+			} else if cs.sm.FirstHalfStarted() && cs.sm.SecondHalfStarted() {
+				cs.sm.ResetRoundCounter();
+				cs.sm.SetSecondHalfStarted(false)
+				cs.log = false
 				cs.rc.WriteData("say Second half has been cancelled. Please type !lo3 once all players are ready.")
-				irc.SendToChannel("*** Second half has been cancelled.")
+				irc.SendToChannel(irc.msg.destination, "*** Second half has been cancelled.")
 				return
 			}
 		} else if (msg[0] == "!map" && len(msg) > 1) {
-			if irc.ScoreM.FirstHalfStarted() || irc.ScoreM.SecondHalfStarted() {
+			if cs.sm.FirstHalfStarted() || cs.sm.SecondHalfStarted() {
 				cs.rc.WriteData("say You are unable to change the map once the game has gone live.")
 				return
 			}
 
 			mapName := msg[1];
-			if !irc.pug.IsValidMap(mapName) {
-				cs.rc.WriteData("Invalid map selection. Please select a map from the following: %s ", irc.pug.GetValidMaps())
+			if !IsValidMap(mapName) {
+				cs.rc.WriteData("Invalid map selection. Please select a map from the following: %s ", GetValidMaps())
 				return
 			}
 
 			cs.rc.WriteData("say Changing map to '%s'.", mapName)
 			cs.rc.WriteData("changelevel %s", mapName)
-			irc.SendToChannel("PUG admin changed level to %s", mapName)
+			irc.SendToChannel(irc.msg.destination, "PUG admin changed level to %s", mapName)
 			return;
 		} else if (msg[0] == "!irc") {
 			if (len(msg) > 1) {
 				s := strings.Join(msg[1:], " ")
 				cs.rc.WriteData("say Sending message to IRC: %s.", s)
-				irc.SendToChannel("[CS]: %s", s)
+				irc.SendToChannel(irc.msg.destination, "[CS]: %s", s)
 				return;
 			}
 		}
 	}
-	if len(csBuffer) >= 14 && cs.relayGameEvents {
+	if len(csBuffer) >= 14 && cs.log {
 		if (csBuffer[8] == "killed") {
 			player1,_,_,team1 := GetPlayerInfo(csBuffer[4])
 			player2,_,_,team2 := GetPlayerInfo(csBuffer[9])
@@ -480,17 +449,17 @@ func (irc *IRC) HandleCSBuffer(csBuffer []string, cs *CS) {
 			}
 
 			if team1 == "TERRORIST" && team2 == "CT" {
-				irc.ScoreM.SetCTsLeft(irc.ScoreM.GetCTsLeft()-1)
-				irc.SendToChannel("%s (T) killed %s (CT) with %s %s [%d/5 left]\n", player1, player2, weapon, headshot, irc.ScoreM.GetCTsLeft())
+				cs.sm.SetCTsLeft(cs.sm.GetCTsLeft()-1)
+				irc.SendToChannel("irc.msg.destination, %s (T) killed %s (CT) with %s %s [%d/5 left]\n", player1, player2, weapon, headshot, cs.sm.GetCTsLeft())
 			} else if team1 == "CT" && team2 == "TERRORIST" {
-				irc.ScoreM.SetTsLeft(irc.ScoreM.GetTsLeft()-1)
-				irc.SendToChannel("%s (CT) killed %s (T) with %s %s [%d/5 left]\n", player1, player2, weapon, headshot, irc.ScoreM.GetTsLeft())	
+				cs.sm.SetTsLeft(cs.sm.GetTsLeft()-1)
+				irc.SendToChannel("irc.msg.destination, %s (CT) killed %s (T) with %s %s [%d/5 left]\n", player1, player2, weapon, headshot, cs.sm.GetTsLeft())	
 			} else if team1 == "TERRORIST" && team2 == "TERRORIST" {
-				irc.ScoreM.SetTsLeft(irc.ScoreM.GetTsLeft()-1)
-				irc.SendToChannel("%s (T) killed %s (T) with %s %s [%d/5 left]\n", player1, player2, weapon, headshot, irc.ScoreM.GetTsLeft())	
+				cs.sm.SetTsLeft(cs.sm.GetTsLeft()-1)
+				irc.SendToChannel(irc.msg.destination, "%s (T) killed %s (T) with %s %s [%d/5 left]\n", player1, player2, weapon, headshot, cs.sm.GetTsLeft())	
 			} else if team1 == "CT" && team2 == "CT" {
-				irc.ScoreM.SetCTsLeft(irc.ScoreM.GetCTsLeft()-1)
-				irc.SendToChannel("%s (CT) killed %s (CT) with %s %s [%d/5 left]\n", player1, player2, weapon, headshot, irc.ScoreM.GetCTsLeft())	
+				cs.sm.SetCTsLeft(cs.sm.GetCTsLeft()-1)
+				irc.SendToChannel(irc.msg.destination, "%s (CT) killed %s (CT) with %s %s [%d/5 left]\n", player1, player2, weapon, headshot, cs.sm.GetCTsLeft())	
 			}
 		}
 	}

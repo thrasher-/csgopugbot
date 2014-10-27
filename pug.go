@@ -9,16 +9,88 @@ import (
 )
 
 const MAX_PLAYERS = 10
+var validMaps []string
+var pugManager []*PUG
 
 type PUG struct {
+	pugID int
 	mapName string
-	validMaps []string
+	ircChannel string
 	players[] string
 	pugAdmin string
-
 	pugStarted, pugActive bool
 }
 
+func SetAllowedMaps(maps []string)  {
+	validMaps = maps;
+}
+
+func GetValidMaps() string {
+	return strings.Join(validMaps, " ")
+}
+
+func IsValidMap(mapName string) bool {
+	validMaps := strings.Join(validMaps, " ")
+	if (strings.Contains(validMaps, mapName)) {
+		return true
+	} else {
+		return false
+	}
+}
+
+func GetPugCounter() (int) {
+	return len(pugManager)
+}
+
+func NewPug(pug *PUG) {
+	if (len(pugManager) == 0) {
+		pug.pugID = 0
+	} else {
+		pug.pugID = len(pugManager)
+	}
+	pugManager = append(pugManager, pug)
+}
+
+func GetPugByPlayer(player string) (*PUG, bool) {
+	for i := range pugManager {
+		if pugManager[i].GetPlayerByName(player) {
+			return pugManager[i], true
+		}
+	}
+	return nil, false
+}
+
+func GetPugByChannel(channel string) (*PUG, bool) {
+	for i := range pugManager {
+		if pugManager[i].GetIRCChannel() == channel {
+			return pugManager[i], true
+		}
+	}
+	return nil, false
+}
+
+func DeletePug(pugID int) {
+	for i := range pugManager {
+		if (pugID == pugManager[i].GetPugID()) {
+			pugManager = append(pugManager[:i], pugManager[i+1:]...)
+			return
+		}
+	}
+}
+
+func (p *PUG) GetPlayerByName(player string) (bool) {
+	if (!p.pugStarted) {
+		return false
+	}
+
+	for i := range p.players {
+		if (player == p.players[i]) {
+			return true
+		}
+	}
+
+	return false
+}
 func (p *PUG) PugStarted() bool {
 	return p.pugStarted
 }
@@ -101,9 +173,14 @@ func (p *PUG) LeavePug(player string) bool {
 	return false
 }
 
+func (p *PUG) GetPugID() (int) {
+	return p.pugID
+}
+
 func (p *PUG) SetMap(mapName string) {
 	p.mapName = mapName
 }
+
 
 func (p *PUG) GetMap() string {
 	return p.mapName
@@ -111,6 +188,14 @@ func (p *PUG) GetMap() string {
 
 func (p *PUG) GetAdmin() string {
 	return p.pugAdmin
+}
+
+func (p *PUG) SetIRCChannel(channel string) {
+	p.ircChannel = channel
+}
+
+func (p *PUG) GetIRCChannel() string {
+	return p.ircChannel
 }
 
 func (p *PUG) GetPlayers() []string {
@@ -122,7 +207,7 @@ func (p *PUG) StartPug() {
 		return;
 	}
 	
-	if (len(p.mapName) > 0) && p.IsValidMap(p.mapName) {
+	if (len(p.mapName) > 0) && IsValidMap(p.mapName) {
 		fmt.Printf("Pug map is %s", p.mapName)
 	} else {
 		p.mapName = "de_dust2"
@@ -140,21 +225,6 @@ func (p *PUG) EndPug() {
 	p.pugActive = false
 	p.mapName = ""
 	p.players = nil
+	p.ircChannel = ""
 }
 
-func (p *PUG) SetAllowedMaps(maps []string)  {
-	p.validMaps = maps;
-}
-
-func (p *PUG) GetValidMaps() string {
-	return strings.Join(p.validMaps, " ")
-}
-
-func (p *PUG) IsValidMap(mapName string) bool {
-	validMaps := strings.Join(p.validMaps, " ")
-	if (strings.Contains(validMaps, mapName)) {
-		return true
-	} else {
-		return false
-	}
-}
