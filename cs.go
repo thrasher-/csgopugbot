@@ -311,6 +311,7 @@ func (cs *CS) HandleCSBuffer(csBuffer []string) {
 			if cs.sm.GetCTScore() + cs.sm.GetTScore() == 15 {
 				irc.SendToChannel(irc.msg.destination, "*** The first half has been completed.")
 				cs.rc.WriteData("say The first half has been completed.")
+				cs.rc.WriteData("mp_swapteams")
 				cs.sm.SetFirstHalfT(cs.sm.GetTScore())
 				cs.sm.SetFirstHalfCT(cs.sm.GetCTScore())
 				cs.sm.SetTScore(0)
@@ -334,6 +335,8 @@ func (cs *CS) HandleCSBuffer(csBuffer []string) {
 				pug.EndPug()
 				DeletePug(pug.GetPugID())
 				cs.sm.Reset()
+				cs.rc.WriteData("_restart") // kick all clients and set pw to a temp one
+				cs.rc.WriteData("sv_password %s", pug.GenerateRandomPassword("temp"))
 				irc.SendToChannel(irc.msg.destination, "The PUG has completed, type !pug <map> to start a new one!")
 			}
 		}
