@@ -95,6 +95,10 @@ func (p *PUG) PugStarted() bool {
 	return p.pugStarted
 }
 
+func (p *PUG) SetPugActive(active bool) {
+	p.pugActive = active
+}
+
 func (p *PUG) PugActive() bool {
 	return p.pugActive
 }
@@ -180,7 +184,6 @@ func (p *PUG) GetPugID() (int) {
 func (p *PUG) SetMap(mapName string) {
 	p.mapName = mapName
 }
-
 
 func (p *PUG) GetMap() string {
 	return p.mapName

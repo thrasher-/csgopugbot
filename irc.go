@@ -228,11 +228,14 @@ func (irc *IRC) HandleIRCEvents(ircBuffer string) {
 
 			channel := pug.GetIRCChannel()
 
-			if pug.LeavePug(nickname) {
+			if pug.LeavePug(nickname) && !pug.PugActive() {
 				if pug.GetPlayerCount() == 0 {
 					irc.SendToChannel(channel, "The PUG admin has left the PUG and there are no other plays to assign the admin rights to. Type !pug <map> to start a new one.")
 					pug.EndPug()
 					DeletePug(pug.GetPugID())
+					cs, _ := GetServerByChannel(channel)
+					cs.SetInUseStatus(false)
+					cs.SetIRCChannel("")
 				} else {
 					if pug.GetAdmin() == nickname {
 						pug.AssignNewAdmin()
@@ -264,6 +267,16 @@ func (irc *IRC) HandleIRCEvents(ircBuffer string) {
 					return
 				}
 
+				cs, success := GetFreeServer("Sydney") // to-do - obtain channel region
+					
+				if !success {
+					irc.SendToChannel(destination, "Unable to discover any available servers with specified region.")
+					return
+				}
+
+				cs.SetInUseStatus(true)
+				cs.SetIRCChannel(destination)
+				
 				p := &PUG{}
 
 				if len(message) > 1 {
@@ -274,37 +287,32 @@ func (irc *IRC) HandleIRCEvents(ircBuffer string) {
 						p.SetMap(s)
 					}
 				}
+
+				irc.SendToChannel(destination, "A PUG has been started on map %s, type !join to join the pug", p.GetMap())
+				fmt.Printf("Assigned server ID, region %s to pug ID %d with channel %s\n", cs.GetRegion(), p.GetPugID(), destination)
+				cs.rc.WriteData("changelevel %s", p.GetMap())
+				cs.serverPassword = p.GenerateRandomPassword("pug")
+				cs.rc.WriteData("sv_password %s", cs.serverPassword)
+				cs.pugAdminPassword = p.GenerateRandomPassword("admin")
 				p.StartPug()
 				p.SetIRCChannel(destination)
 				p.JoinPug(nickname)
 				NewPug(p)
-				irc.SendToChannel(destination, "A PUG has been started on map %s, type !join to join the pug", p.GetMap())
 			} else if message[0] == "!join" {
 				if pugStarted {
 					pug, _ := GetPugByChannel(destination)
-					if pug.JoinPug(nickname) {
+					if pug.JoinPug(nickname) && !pug.PugActive() {
 						irc.SendToChannel(destination, "%s has joined the pug! [%d/10]", nickname, pug.GetPlayerCount())
 						if pug.GetPlayerCount() < 10 {
 							return
 						}
 						irc.SendToChannel(destination, "The PUG is now full! The server information will be messaged to you.")
 						pug.RandomisePlayerList()
-						cs, success := GetFreeServer("Sydney") // to-do - obtain channel region
-					
-						if !success {
-							fmt.Println("Unable to find server")
-							return
-						}
-
-						cs.SetInUseStatus(true)
-						cs.SetIRCChannel(destination)
-						fmt.Printf("Assigned server ID, region %s to pug ID %s with channel %s", cs.GetRegion(), pug.GetPugID(), destination)
-						cs.rc.WriteData("changelevel %s", pug.GetMap())
-						cs.serverPassword = pug.GenerateRandomPassword("pug")
-						cs.rc.WriteData("sv_password %s", cs.serverPassword)
-						cs.pugAdminPassword = pug.GenerateRandomPassword("admin")
+						pug.SetPugActive(true)
+						
 						players := pug.GetPlayers()
 						irc.SendToChannel(destination, "The teams are as follows. Terrorists: %s Counter-Terrorists: %s", strings.Join(players[0:5], " "), strings.Join(players[5:10], " "))
+						cs, _ := GetServerByChannel(destination)
 
 						for i := range players {
 							if players[i] == pug.GetAdmin() {
@@ -321,11 +329,14 @@ func (irc *IRC) HandleIRCEvents(ircBuffer string) {
 			} else if message[0] == "!leave" {
 				if pugStarted {
 					pug, _ := GetPugByChannel(destination)
-					if pug.LeavePug(nickname) {
+					if pug.LeavePug(nickname) && !pug.PugActive() {
 						if pug.GetPlayerCount() == 0 {
 							irc.SendToChannel(destination, "The PUG admin has left the PUG and there are no other plays to assign the admin rights to. Type !pug <map> to start a new one.")
 							pug.EndPug()
 							DeletePug(pug.GetPugID())
+							cs, _ := GetServerByChannel(destination)
+							cs.SetInUseStatus(false)
+							cs.SetIRCChannel("")
 						} else {
 							if pug.GetAdmin() == nickname {
 								pug.AssignNewAdmin()
