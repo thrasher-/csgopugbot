@@ -14,7 +14,7 @@ var csManager []*CS
 type CS struct {
 	pugID int
 	serverID int
-	InUse, log bool
+	InUse, DumpProtocolMessages, RelayGameEvents bool
 	SrvSocket *net.UDPConn
 	rc RemoteConsole
 	sm ScoreManager
@@ -68,7 +68,7 @@ func GetCSServerCount() (int) {
 	return len(csManager)
 }
 
-func NewCSServer(serverIP, rconPassword, serverPassword, listenAddress, region, ircChannel string, log bool) (bool) {
+func NewCSServer(serverIP, rconPassword, serverPassword, listenAddress, region, ircChannel string, DumpProtocolMessages bool) (bool) {
 	cs := &CS{}
 
 	if (len(csManager) == 0) {
@@ -91,19 +91,17 @@ func NewCSServer(serverIP, rconPassword, serverPassword, listenAddress, region, 
 		return false
 	}
 
+	cs.region = region
 	cs.serverPassword = serverPassword
 	cs.InUse = false
-	cs.log = log
+	cs.RelayGameEvents = false
+	cs.DumpProtocolMessages = DumpProtocolMessages
 	cs.ircChannel = ircChannel
 
 	cs.EnableLogging()
 	go cs.RecvData()
 	csManager = append(csManager, cs)
 	return true
-}
-
-func GetServer(serverID int) (*CS) {
-	return csManager[serverID]
 }
 
 func DeleteServer(serverID int) {
@@ -249,85 +247,92 @@ func GetPlayerInfo(playerInfo string) (string, string, string, string) {
 }
 
 func (cs *CS) HandleCSBuffer(csBuffer []string) {
-	if (cs.log) {
+	if (cs.DumpProtocolMessages) {
 		fmt.Printf("csBuffer size: %d\n", len(csBuffer))
 		for i, _ := range csBuffer {
 			fmt.Printf("csBuffer[%d] = %s\n", i, csBuffer[i])
 		}
 	}
-	if (csBuffer[5] == "entered") {
+
+	if (csBuffer[5] == "entered" && cs.InUse) {
 		player,_,steamID,_ := GetPlayerInfo(csBuffer[4])
-		irc.SendToChannel("%s (%s) has entered the game.", player, steamID)
-	} else if (csBuffer[5] == "purchased") {
-		player,_,_,_ := GetPlayerInfo(csBuffer[4])
-		item := csBuffer[6][1:len(csBuffer[6])-1];
-		fmt.Printf("Player %s purchased %s\n", player, item)
-		return;
-	} else if csBuffer[5] == "triggered" && cs.log {
+		irc.SendToChannel(cs.ircChannel, "%s (%s) has entered the game.", player, steamID)
+		cs.sm.AddPlayer(player, steamID)
+	} else if (csBuffer[5] == "disconnected" && cs.InUse) {
+		player,_,steamID,_ := GetPlayerInfo(csBuffer[4])
+		irc.SendToChannel(cs.ircChannel, "%s (%s) has left the game.", player, steamID)
+		cs.sm.RemovePlayer(player, steamID)
+	} else if csBuffer[5] == "triggered" && cs.RelayGameEvents {
 		player,_,_,_ := GetPlayerInfo(csBuffer[4])
 		event := csBuffer[6][1:len(csBuffer[6])-1];
 
 		switch event {
 			case "Begin_Bomb_Defuse_Without_Kit": 
-				irc.SendToChannel(irc.msg.destination, " %s started bomb defuse without kit.", player)
+				irc.SendToChannel(cs.ircChannel, "%s started bomb defuse without kit.", player)
 			case "Begin_Bomb_Defuse_With_Kit":
-				irc.SendToChannel(irc.msg.destination," %s started bomb defuse with kit.", player)
+				irc.SendToChannel(cs.ircChannel, "%s started bomb defuse with kit.", player)
 			case "Dropped_The_Bomb":
-				irc.SendToChannel(irc.msg.destination," %s dropped the bomb.", player)
+				irc.SendToChannel(cs.ircChannel, "%s dropped the bomb.", player)
 			case "Planted_The_Bomb": 
-				irc.SendToChannel(irc.msg.destination," %s planted the bomb.", player)
+				irc.SendToChannel(cs.ircChannel, "%s planted the bomb.", player)
 			case "Got_The_Bomb":
-				irc.SendToChannel(irc.msg.destination," %s picked up the bomb.", player)
+				irc.SendToChannel(cs.ircChannel, "%s picked up the bomb.", player)
 			case "Defused_The_Bomb":
-				irc.SendToChannel(irc.msg.destination, "%s defused the bomb.", player)
+				irc.SendToChannel(cs.ircChannel, "%s defused the bomb.", player)
 			case "Round_Start":
 				cs.sm.ResetRoundPlayersLeft()
 			case "Round_End":
 				cs.rc.WriteData("say			CT Score (%d)  			T Score (%d)		", cs.sm.GetCTScore(), cs.sm.GetTScore())
-				irc.SendToChannel(irc.msg.destination, "			CT Score (%d)  			T Score (%d)		", cs.sm.GetCTScore(), cs.sm.GetTScore())
-				irc.SendToChannel(irc.msg.destination, "******************** ROUND ENDED ********************")
-				irc.SendToChannel(irc.msg.destination, "******************** ROUND STARTED ******************")
+				irc.SendToChannel(cs.ircChannel, "			CT Score (%d)  			T Score (%d)		", cs.sm.GetCTScore(), cs.sm.GetTScore())
+				irc.SendToChannel(cs.ircChannel, "******************** ROUND ENDED ********************")
+				irc.SendToChannel(cs.ircChannel, "******************** ROUND STARTED ******************")
 		}
 		return;
-	} else if csBuffer[6] == "triggered" && cs.log {
+	} else if csBuffer[6] == "triggered" && cs.RelayGameEvents {
 		event := csBuffer[7][1:len(csBuffer[7])-1];
 
 		switch event {
 			case "SFUI_Notice_Target_Bombed":
 				cs.sm.SetTScore(cs.sm.GetTScore()+1)
-				irc.SendToChannel(irc.msg.destination, "*** Target bombed successfully, the Terrorists win! ***")
+				irc.SendToChannel(cs.ircChannel, "*** Target bombed successfully, the Terrorists win! ***")
 			case "SFUI_Notice_Terrorists_Win":
 				cs.sm.SetTScore(cs.sm.GetTScore()+1)
-				irc.SendToChannel(irc.msg.destination, "******* All CT's eliminated, the Terrorists win! *******")
+				irc.SendToChannel(cs.ircChannel, "******* All CT's eliminated, the Terrorists win! *******")
 			case "SFUI_Notice_Bomb_Defused":
 				cs.sm.SetCTScore(cs.sm.GetCTScore()+1)
-				irc.SendToChannel(irc.msg.destination, "******* Bomb defused, the Counter-Terrorists win! ******")
+				irc.SendToChannel(cs.ircChannel, "******* Bomb defused, the Counter-Terrorists win! ******")
 			case "SFUI_Notice_CTs_Win":
 				cs.sm.SetCTScore(cs.sm.GetCTScore()+1)
-				irc.SendToChannel(irc.msg.destination, "*** All Terrorists eliminated, the Counter-Terrorists win! ***\n")
+				irc.SendToChannel(cs.ircChannel, "*** All Terrorists eliminated, the Counter-Terrorists win! ***\n")
 		}
 
 		if cs.sm.FirstHalfStarted() {
 			if cs.sm.GetCTScore() + cs.sm.GetTScore() == 15 {
-				irc.SendToChannel(irc.msg.destination, "*** The first half has been completed.")
+				irc.SendToChannel(cs.ircChannel, "			CT Score (%d)  			T Score (%d)		", cs.sm.GetCTScore(), cs.sm.GetTScore())
+				irc.SendToChannel(cs.ircChannel, "*** The first half has been completed.")
 				cs.rc.WriteData("say The first half has been completed.")
+				cs.rc.WriteData("say			CT Score (%d)  			T Score (%d)		", cs.sm.GetCTScore(), cs.sm.GetTScore())
 				cs.rc.WriteData("mp_swapteams")
 				cs.sm.SetFirstHalfT(cs.sm.GetTScore())
 				cs.sm.SetFirstHalfCT(cs.sm.GetCTScore())
 				cs.sm.SetTScore(0)
 				cs.sm.SetCTScore(0)
+				cs.RelayGameEvents = false
 			}
 		}
 		if cs.sm.SecondHalfStarted() {
 			if cs.sm.GetCTScore() + cs.sm.GetFirstHalfT() == 16 {
-				irc.SendToChannel(irc.msg.destination, "MATCH COMPLETED SUCCESSFULLY. The score was %d - %d", cs.sm.GetCTScore() + cs.sm.GetFirstHalfT(), cs.sm.GetTScore() + cs.sm.GetFirstHalfCT())
+				irc.SendToChannel(cs.ircChannel, "MATCH COMPLETED SUCCESSFULLY. The score was %d - %d", cs.sm.GetCTScore() + cs.sm.GetFirstHalfT(), cs.sm.GetTScore() + cs.sm.GetFirstHalfCT())
 				cs.rc.WriteData("say MATCH COMPLETED SUCCESSFULLY. The Score was %d - %d", cs.sm.GetCTScore() + cs.sm.GetFirstHalfT(), cs.sm.GetTScore() + cs.sm.GetFirstHalfCT())
+				cs.sm.SetMatchCompleted(true)
 			} else if cs.sm.GetCTScore() + cs.sm.GetFirstHalfT() == 15 {
-				irc.SendToChannel(irc.msg.destination, "MATCH COMPLETED SUCCESSFULLY. The match was a draw.")
+				irc.SendToChannel(cs.ircChannel, "MATCH COMPLETED SUCCESSFULLY. The match was a draw.")
 				cs.rc.WriteData("say MATCH COMPLETED SUCCESSFULLY. The match was a draw.")
+				cs.sm.SetMatchCompleted(true)
 			} else if cs.sm.GetTScore() + cs.sm.GetFirstHalfCT()  == 16 {
-				irc.SendToChannel(irc.msg.destination, "MATCH COMPLETED SUCCESSFULLY. The score was %d - %d", cs.sm.GetTScore() + cs.sm.GetFirstHalfCT(), cs.sm.GetCTScore() + cs.sm.GetFirstHalfT())
+				irc.SendToChannel(cs.ircChannel, "MATCH COMPLETED SUCCESSFULLY. The score was %d - %d", cs.sm.GetTScore() + cs.sm.GetFirstHalfCT(), cs.sm.GetCTScore() + cs.sm.GetFirstHalfT())
 				cs.rc.WriteData("say MATCH COMPLETED SUCCESSFULLY. The Score was %d - %d", cs.sm.GetTScore() + cs.sm.GetFirstHalfCT(), cs.sm.GetCTScore() + cs.sm.GetFirstHalfT())
+				cs.sm.SetMatchCompleted(true)
 			}
 
 			if cs.sm.MatchCompleted() {
@@ -337,7 +342,9 @@ func (cs *CS) HandleCSBuffer(csBuffer []string) {
 				cs.sm.Reset()
 				cs.rc.WriteData("_restart") // kick all clients and set pw to a temp one
 				cs.rc.WriteData("sv_password %s", pug.GenerateRandomPassword("temp"))
-				irc.SendToChannel(irc.msg.destination, "The PUG has completed, type !pug <map> to start a new one!")
+				cs.SetInUseStatus(false)
+				irc.SendToChannel(cs.ircChannel, "The PUG has completed, type !pug <map> to start a new one!")
+				cs.SetIRCChannel("")
 			}
 		}
 	} else if (csBuffer[5] == "say") {
@@ -353,7 +360,7 @@ func (cs *CS) HandleCSBuffer(csBuffer []string) {
 				fmt.Printf("IN-GAME AUTH request: comparing '%s' to '%s'\n", password, cs.pugAdminPassword)
 				if (password == cs.pugAdminPassword) {
 					cs.rc.WriteData("say PUG admin rights has been granted to %s", player)
-					irc.SendToChannel(irc.msg.destination, "PUG admin rights has been granted to %s", player)
+					irc.SendToChannel(cs.ircChannel, "PUG admin rights has been granted to %s", player)
 					cs.authSteamID = steamID
 					return;
 				}
@@ -377,20 +384,20 @@ func (cs *CS) HandleCSBuffer(csBuffer []string) {
 			} else if cs.sm.FirstHalfStarted() && cs.sm.GetFirstHalfT() + cs.sm.GetFirstHalfCT() == 15 {
 				cs.sm.SetSecondHalfStarted(true)
 				cs.rc.WriteData("say The second half has begun!")
-				irc.SendToChannel(irc.msg.destination, "The second half has begun!")
+				irc.SendToChannel(cs.ircChannel, "The second half has begun!")
 			}
-			if (!cs.log) {
-				cs.log = true
+			if (!cs.RelayGameEvents) {
+				cs.RelayGameEvents = true
 				fmt.Println("Game event relaying enabled.")
 			}
 			cs.rc.WriteData("say Going Live on 1 restart..")
 			cs.rc.WriteData("mp_restartgame 3")
 			cs.rc.WriteData("say LIVE! LIVE! LIVE! Good luck and have fun")
-			irc.SendToChannel(irc.msg.destination, "*** MATCH HAS GONE LIVE.")
+			irc.SendToChannel(cs.ircChannel, "*** MATCH HAS GONE LIVE.")
 			return;
 		} else if (msg[0] == "!request") {
 			cs.rc.WriteData("say Requesting for players on IRC.")
-			irc.SendToChannel(irc.msg.destination, "Need player! To join, use the connect string: connect %s; password %s", cs.serverIP, cs.serverPassword)
+			irc.SendToChannel(cs.ircChannel, "Need player! To join, use the connect string: connect %s; password %s", cs.serverIP, cs.serverPassword)
 			return;
 		} else if (msg[0] == "!restart") {
 			if cs.sm.FirstHalfStarted() || cs.sm.SecondHalfStarted() {
@@ -403,16 +410,16 @@ func (cs *CS) HandleCSBuffer(csBuffer []string) {
 			if cs.sm.FirstHalfStarted() && !cs.sm.SecondHalfStarted() {
 				cs.sm.ResetRoundCounter()
 				cs.sm.SetFirstHalfStarted(false)
-				cs.log = false
+				cs.RelayGameEvents = false
 				cs.rc.WriteData("say First half has been cancelled. Please type !lo3 once all players are ready.")
-				irc.SendToChannel(irc.msg.destination, "*** First half has been cancelled.")
+				irc.SendToChannel(cs.ircChannel, "*** First half has been cancelled.")
 				return
 			} else if cs.sm.FirstHalfStarted() && cs.sm.SecondHalfStarted() {
 				cs.sm.ResetRoundCounter();
 				cs.sm.SetSecondHalfStarted(false)
-				cs.log = false
+				cs.RelayGameEvents = false
 				cs.rc.WriteData("say Second half has been cancelled. Please type !lo3 once all players are ready.")
-				irc.SendToChannel(irc.msg.destination, "*** Second half has been cancelled.")
+				irc.SendToChannel(cs.ircChannel, "*** Second half has been cancelled.")
 				return
 			}
 		} else if (msg[0] == "!map" && len(msg) > 1) {
@@ -429,18 +436,18 @@ func (cs *CS) HandleCSBuffer(csBuffer []string) {
 
 			cs.rc.WriteData("say Changing map to '%s'.", mapName)
 			cs.rc.WriteData("changelevel %s", mapName)
-			irc.SendToChannel(irc.msg.destination, "PUG admin changed level to %s", mapName)
+			irc.SendToChannel(cs.ircChannel, "PUG admin changed level to %s", mapName)
 			return;
 		} else if (msg[0] == "!irc") {
 			if (len(msg) > 1) {
 				s := strings.Join(msg[1:], " ")
 				cs.rc.WriteData("say Sending message to IRC: %s.", s)
-				irc.SendToChannel(irc.msg.destination, "[CS]: %s", s)
+				irc.SendToChannel(cs.ircChannel, "[CS]: %s", s)
 				return;
 			}
 		}
 	}
-	if len(csBuffer) >= 14 && cs.log {
+	if len(csBuffer) >= 14 && cs.RelayGameEvents {
 		if (csBuffer[8] == "killed") {
 			player1,_,_,team1 := GetPlayerInfo(csBuffer[4])
 			player2,_,_,team2 := GetPlayerInfo(csBuffer[9])
@@ -453,16 +460,16 @@ func (cs *CS) HandleCSBuffer(csBuffer []string) {
 
 			if team1 == "TERRORIST" && team2 == "CT" {
 				cs.sm.SetCTsLeft(cs.sm.GetCTsLeft()-1)
-				irc.SendToChannel("irc.msg.destination, %s (T) killed %s (CT) with %s %s [%d/5 left]\n", player1, player2, weapon, headshot, cs.sm.GetCTsLeft())
+				irc.SendToChannel(cs.ircChannel, "%s (T) killed %s (CT) with %s %s [%d/5 left]\n", player1, player2, weapon, headshot, cs.sm.GetCTsLeft())
 			} else if team1 == "CT" && team2 == "TERRORIST" {
 				cs.sm.SetTsLeft(cs.sm.GetTsLeft()-1)
-				irc.SendToChannel("irc.msg.destination, %s (CT) killed %s (T) with %s %s [%d/5 left]\n", player1, player2, weapon, headshot, cs.sm.GetTsLeft())	
+				irc.SendToChannel(cs.ircChannel, "%s (CT) killed %s (T) with %s %s [%d/5 left]\n", player1, player2, weapon, headshot, cs.sm.GetTsLeft())	
 			} else if team1 == "TERRORIST" && team2 == "TERRORIST" {
 				cs.sm.SetTsLeft(cs.sm.GetTsLeft()-1)
-				irc.SendToChannel(irc.msg.destination, "%s (T) killed %s (T) with %s %s [%d/5 left]\n", player1, player2, weapon, headshot, cs.sm.GetTsLeft())	
+				irc.SendToChannel(cs.ircChannel, "%s (T) killed %s (T) with %s %s [%d/5 left]\n", player1, player2, weapon, headshot, cs.sm.GetTsLeft())	
 			} else if team1 == "CT" && team2 == "CT" {
 				cs.sm.SetCTsLeft(cs.sm.GetCTsLeft()-1)
-				irc.SendToChannel(irc.msg.destination, "%s (CT) killed %s (CT) with %s %s [%d/5 left]\n", player1, player2, weapon, headshot, cs.sm.GetCTsLeft())	
+				irc.SendToChannel(cs.ircChannel, "%s (CT) killed %s (CT) with %s %s [%d/5 left]\n", player1, player2, weapon, headshot, cs.sm.GetCTsLeft())	
 			}
 		}
 	}

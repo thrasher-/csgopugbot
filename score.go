@@ -1,16 +1,63 @@
 package main
 
-type PlayerInfo struct {
-	steamID string
+import "fmt"
+
+type Player struct {
+	steamID, username, team string
 	kills, deaths, assists int
 }
 
 type ScoreManager struct {
 	firstHalfStarted, secondHalfStarted, matchCompleted bool
 	firstHalfT, firstHalfCT int
-	players PlayerInfo
+	players []Player
 	CTScore, TScore int
 	CTsLeft, TsLeft int
+}
+
+func (sm *ScoreManager) AddPlayer(steamID, username string) {
+	if sm.DoesPlayerExist(steamID, username) {
+		return
+	}
+
+	player := Player{}
+	player.steamID = steamID
+	player.username = username
+	player.team = ""
+	player.kills = 0
+	player.deaths = 0
+	player.assists = 0
+
+	sm.players = append(sm.players, player)
+	fmt.Println("Added player: %s %s", steamID, username)
+}
+
+func (sm *ScoreManager) RemovePlayer(steamID, username string) {
+	if !sm.DoesPlayerExist(steamID, username) {
+		return
+	}
+
+	for i := range sm.players {
+		if sm.players[i].steamID == steamID && sm.players[i].username == username && steamID != "BOT" {
+			sm.players = append(sm.players[:i], sm.players[i+1:]...)
+			return
+		} else if sm.players[i].steamID == "BOT" && sm.players[i].username == username {
+			sm.players = append(sm.players[:i], sm.players[i+1:]...)
+			return
+		}
+	}
+	return
+}
+
+func (sm *ScoreManager) DoesPlayerExist(steamID, username string) (bool) {
+	for i := range sm.players {
+		if sm.players[i].steamID == steamID && sm.players[i].username == username && steamID != "BOT" {
+			return true
+		} else if sm.players[i].steamID == "BOT" && sm.players[i].username == username {
+			return true
+		}
+	}
+	return false
 }
 
 func (sm *ScoreManager) FirstHalfStarted() (bool) {
@@ -111,4 +158,5 @@ func (sm *ScoreManager) Reset() {
 
 	sm.firstHalfT = 0
 	sm.firstHalfCT = 0
+	sm.players = nil
 }
