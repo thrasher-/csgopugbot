@@ -4,7 +4,7 @@ import "fmt"
 
 type Player struct {
 	steamID, username, team string
-	kills, deaths, assists, bombPlanted, bombDropped, bombPickedUp, targetBombed, bombDefused, bombDefuseAttemptWithKit, bombDefuseAttemptWithoutKit int
+	kills, deaths, assists, bombPlanted, bombDropped, bombPickedUp, rounds, matches, targetBombed, bombDefused, bombDefuseAttemptWithKit, bombDefuseAttemptWithoutKit int
 }
 
 const (
@@ -15,6 +15,8 @@ const (
 	BOMB_DEFUSED
 	BOMB_DEFUSE_ATTEMPTED_WITH_KIT
 	BOMB_DEFUSE_ATTEMPTED_WITHOUT_KIT
+	ROUND_FINISHED
+	MATCH_FINISHED
 )
 
 type ScoreManager struct {
@@ -39,6 +41,8 @@ func (sm *ScoreManager) AddPlayer(steamID, username string) {
 	player.kills = 0
 	player.deaths = 0
 	player.assists = 0
+	player.rounds = 0
+	player.matches = 0
 	player.bombDefused = 0
 	player.bombPlanted = 0
 	player.targetBombed = 0
@@ -68,6 +72,17 @@ func (sm *ScoreManager) DoesPlayerExist(steamID, username string) (bool) {
 		}
 	}
 	return false
+}
+
+func (sm *ScoreManager) AddEventStatsAll(eventType int) {
+	for i := range sm.players {
+		switch eventType {
+			case ROUND_FINISHED:
+				sm.players[i].rounds += 1
+			case MATCH_FINISHED:
+				sm.players[i].matches = 1
+		}
+	}
 }
 
 func (sm *ScoreManager) AddEventStats(eventType int, steamID, username string) {

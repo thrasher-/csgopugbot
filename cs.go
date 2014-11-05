@@ -289,6 +289,7 @@ func (cs *CS) HandleCSBuffer(csBuffer []string) {
 				cs.sm.ResetRoundPlayersLeft()
 			case "Round_End":
 				cs.sm.EnumerateStats()
+				cs.sm.AddEventStatsAll(ROUND_FINISHED)
 				if cs.sm.SecondHalfStarted() {
 					cs.rc.WriteData("say			CT Score (%d)  			T Score (%d)		", cs.sm.GetCTScore() + cs.sm.GetFirstHalfT(), cs.sm.GetTScore() + cs.sm.GetFirstHalfCT())
 					irc.SendToChannel(cs.ircChannel, "			CT Score (%d)  			T Score (%d)		", cs.sm.GetCTScore() + cs.sm.GetFirstHalfT(), cs.sm.GetTScore() + cs.sm.GetFirstHalfCT())
@@ -353,6 +354,7 @@ func (cs *CS) HandleCSBuffer(csBuffer []string) {
 				pug, _ := GetPugByChannel(cs.ircChannel)
 				pug.EndPug()
 				DeletePug(pug.GetPugID())
+				cs.sm.AddEventStatsAll(MATCH_FINISHED)
 				cs.sm.SaveMatchData()
 				cs.sm.Reset()
 				cs.rc.WriteData("_restart") // kick all clients and set pw to a temp one

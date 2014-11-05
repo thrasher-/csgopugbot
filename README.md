@@ -1,9 +1,11 @@
 csgopugbot
 ==========
 
-A Counter-Strike: Global Offensive IRC PUGbot written in Go.
+A Counter-Strike: Global Offensive IRC PUG bot written in Go. 
 
-The bot reads from a config.ini file which provides it all the neccassary information to function, a sample config file can be located in the project directory.
+The PUG bot supports simultaneous PUG sessions, records in-game event statistics and has built-in web GUI for displaying PUG information. The bot runs without any game server related scripts and is configured via a JSON configuration file. A sample configuration file can be found in the project directory.
+
+Please feel free to send through any feature requests, pull requests or issues as this project is being actively maintained.
 
 Commands
 ==========
