@@ -3,7 +3,7 @@ package main
 import (
 	"errors"
 	"net"
-	"fmt"
+	"log"
 	"strings"
 	"strconv"
 	"time"
@@ -58,7 +58,7 @@ func SetupAndTestCSServers(csServers []CSServers) (bool) {
 	}
 
 	if success == 0 {
-		fmt.Println("Fatal error, unable to connect to any servers.")
+		log.Fatal("Unable to connect to any servers.")
 		return false
 	}
 	return true
@@ -81,13 +81,13 @@ func NewCSServer(serverIP, rconPassword, serverPassword, listenAddress, region, 
 	cs.rconPassword = rconPassword
 
 	if !cs.ConnectToRcon() {
-		fmt.Printf("Fatal error, unable to connect to CS server %s\n", serverIP)
+		log.Fatalf("Unable to connect to CS server %s\n", serverIP)
 		return false
 	}
 
 	cs.listenAddress = listenAddress
 	if !cs.StartUDPServer() {
-		fmt.Printf("Fatal error, unable to bind UDP server %s", listenAddress)
+		log.Fatalf("Unable to bind UDP server %s", listenAddress)
 		return false
 	}
 
@@ -138,22 +138,22 @@ func (cs *CS) GetServerID() (int) {
 }
 
 func (cs *CS) StartUDPServer() bool {
-	fmt.Printf("Starting UDP server on %s", cs.listenAddress)
+	log.Printf("Starting UDP server on %s", cs.listenAddress)
 	addr, err := net.ResolveUDPAddr("udp", cs.listenAddress)
 
 	if err != nil {
-		fmt.Printf("Unable to resolve listen address")
+		log.Fatal("Unable to resolve listen address.")
 		return false
 	}
 
 	cs.SrvSocket, err = net.ListenUDP("udp", addr)
 
 	if err != nil {
-		fmt.Printf("Unable to listen.")
+		log.Printf("Unable to listen.")
 		return false
 	}
 
-	fmt.Println("UDP server started successfully")
+	log.Println("UDP server started successfully")
 	return true
 }
 
@@ -170,7 +170,7 @@ func (cs *CS) ConnectToRcon() bool  {
 	cs.rc.conn, err = net.Dial("tcp", cs.serverIP)
 	
 	if err != nil {
-		fmt.Println("Unable to connect to server RCON.")
+		log.Printf("Unable to connect to server RCON at %s", cs.serverIP)
 		return false
 	}
 
@@ -179,7 +179,7 @@ func (cs *CS) ConnectToRcon() bool  {
 	reqid, err = cs.rc.writeCmd(SERVERDATA_AUTH, cs.rconPassword)
 	
 	if err != nil {
-		fmt.Printf("Error authenticating: %s\n", err)
+		log.Printf("Error authenticating: %s\n", err)
 		return false
 	}
 
@@ -188,7 +188,7 @@ func (cs *CS) ConnectToRcon() bool  {
 	var respType, requestId int
 	respType, requestId, _, err = cs.rc.readResponse(timeout)
 	if err != nil {
-		fmt.Printf("Error reading response: %s\n", err)
+		log.Printf("Error reading response: %s\n", err)
 		return false
 	}
 
@@ -197,21 +197,21 @@ func (cs *CS) ConnectToRcon() bool  {
 	}
 
 	if err != nil {
-		fmt.Printf("Error: %s", err)
+		log.Printf("Error: %s", err)
 		return false
 	}
 
 	if respType != SERVERDATA_AUTH_RESPONSE {
-		fmt.Println(ErrInvalidAuthResponse)
+		log.Println(ErrInvalidAuthResponse)
 		return false
 	}
 	if requestId != reqid {
-		fmt.Println(ErrAuthFailed)
+		log.Println(ErrAuthFailed)
 		return false
 	}
 
 	cs.localIP = strings.Split(cs.rc.conn.LocalAddr().String(), ":")[0]
-	fmt.Printf("Internal IP: %s\n", cs.localIP)
+	log.Printf("Internal IP: %s\n", cs.localIP)
 	return true
 }
 
@@ -221,13 +221,13 @@ func (cs *CS) RecvData() {
 		rlen, _, err := cs.SrvSocket.ReadFromUDP(buffer)
 
 		if err != nil {
-			fmt.Printf("Unable to read data from UDP socket. Error: %s\n", err)
+			log.Printf("Unable to read data from UDP socket. Error: %s\n", err)
 			break;
 		}
 
 		s := string(buffer)
 		s = s[5:rlen-2]
-		fmt.Printf("Received %d bytes: (%s)\n", rlen, s)
+		log.Printf("Received %d bytes: (%s)\n", rlen, s)
 		cs.HandleCSBuffer(strings.Split(s, " "))
 	}
 }
@@ -248,9 +248,9 @@ func GetPlayerInfo(playerInfo string) (string, string, string, string) {
 
 func (cs *CS) HandleCSBuffer(csBuffer []string) {
 	if (cs.DumpProtocolMessages) {
-		fmt.Printf("csBuffer size: %d\n", len(csBuffer))
+		log.Printf("csBuffer size: %d\n", len(csBuffer))
 		for i, _ := range csBuffer {
-			fmt.Printf("csBuffer[%d] = %s\n", i, csBuffer[i])
+			log.Printf("csBuffer[%d] = %s\n", i, csBuffer[i])
 		}
 	}
 
@@ -366,7 +366,7 @@ func (cs *CS) HandleCSBuffer(csBuffer []string) {
 		}
 	} else if (csBuffer[5] == "say") {
 		player,_,steamID,_ := GetPlayerInfo(csBuffer[4])
-		fmt.Printf("Player %s said %s\n", player, strings.Join(csBuffer[6:], " "))
+		log.Printf("Player %s said %s\n", player, strings.Join(csBuffer[6:], " "))
 		message := strings.Join(csBuffer[6:], " ")
 		message = message[1:len(message)-1]
 		msg := strings.Split(message, " ")
@@ -374,7 +374,7 @@ func (cs *CS) HandleCSBuffer(csBuffer []string) {
 		if (len(cs.authSteamID) == 0) {
 			if (msg[0] == "!login" && len(msg) > 1) {
 				password := msg[1];
-				fmt.Printf("IN-GAME AUTH request: comparing '%s' to '%s'\n", password, cs.pugAdminPassword)
+				log.Printf("IN-GAME AUTH request: comparing '%s' to '%s'\n", password, cs.pugAdminPassword)
 				if (password == cs.pugAdminPassword) {
 					cs.rc.WriteData("say PUG admin rights has been granted to %s", player)
 					irc.SendToChannel(cs.ircChannel, "PUG admin rights has been granted to %s", player)
@@ -387,7 +387,7 @@ func (cs *CS) HandleCSBuffer(csBuffer []string) {
 			}
 		} else {
 			if (cs.authSteamID != steamID) {
-				fmt.Println("Invalid auth attempt.")
+				log.Println("Invalid auth attempt.")
 				return
 			}
 		}
@@ -405,7 +405,7 @@ func (cs *CS) HandleCSBuffer(csBuffer []string) {
 			}
 			if (!cs.RelayGameEvents) {
 				cs.RelayGameEvents = true
-				fmt.Println("Game event relaying enabled.")
+				log.Println("Game event relaying enabled.")
 			}
 			cs.rc.WriteData("say Going Live on 1 restart..")
 			cs.rc.WriteData("mp_restartgame 3")

@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"net"
+	"log"
 	"strconv"
 	"strings"
 	"time"
@@ -31,11 +32,11 @@ func (irc *IRC) SendToChannel(channel, data string, v ...interface{}) {
 	_, err := irc.socket.Write([]byte(s))
 
 	if err != nil {
-		fmt.Println("Error, unable to send data.")
+		log.Println("Error, unable to send data.")
 		irc.connected = false
 	}
 
-	fmt.Printf("Sending channel message: %s\n", buffer)
+	log.Printf("Sending channel message: %s\n", buffer)
 }
 
 func (irc *IRC) WriteData(data string, v ...interface{}) {
@@ -43,19 +44,19 @@ func (irc *IRC) WriteData(data string, v ...interface{}) {
 	_, err := irc.socket.Write([]byte(buffer))
 
 	if err != nil {
-		fmt.Println("Error, unable to send data.")
+		log.Println("Error, unable to send data.")
 		irc.connected = false
 	}
 
 	buffer = strings.Trim(buffer, "\r\n")
-	fmt.Printf("Sending: %s\n", buffer)
+	log.Printf("Sending: %s\n", buffer)
 }
 
 func (irc *IRC) IRCLoop() {
 	for {
 		if (!irc.connected) {
 			if irc.ConnectToServer() {
-				fmt.Println("Connected to IRC server!")
+				log.Println("Connected to IRC server!")
 
 				if (len(irc.password) > 0) {
 					irc.WriteData("PASS %s\r\n", irc.password)
@@ -63,20 +64,20 @@ func (irc *IRC) IRCLoop() {
 
 				irc.WriteData("NICK %s\r\n", irc.nickname)
 				irc.WriteData("USER %s %s %s %s\r\n", irc.username, irc.username, irc.username, irc.username)
-				fmt.Println("Starting ping check loop...")
+				log.Println("Starting ping check loop...")
 
 				go irc.PingLoop()
 
 				for {
 					if (!irc.connected) {
-						fmt.Println("Connection to IRC server has been lost.")
+						log.Println("Connection to IRC server has been lost.")
 						break
 					} else {
 						irc.RecvData()
 					}
 				} 
 			} else {
-				fmt.Println("Sleeping for 5 minutes before reconection.")
+				log.Println("Sleeping for 5 minutes before reconection.")
 				time.Sleep(time.Minute * 5)
 			}
 		}
@@ -86,7 +87,7 @@ func (irc *IRC) IRCLoop() {
 func (irc *IRC) PingLoop() {
 	for {
 		if !irc.connected {
-			fmt.Println("Exiting ping loop routine")
+			log.Println("Exiting ping loop routine")
 			break
 		}
 
@@ -102,11 +103,11 @@ func (irc *IRC) PingLoop() {
 			irc.pongReceived = false
 		} else {
 			if time.Since(irc.pingTime) / time.Second >= 10 && !irc.pongReceived {
-				fmt.Println("IRC connection has timed out.")
+				log.Println("IRC connection has timed out.")
 				irc.connected = false
 				break
 			} else if irc.pongReceived {
-				fmt.Println("Received pong to our ping.")
+				log.Println("Received pong to our ping.")
 				irc.pingSent = false
 				irc.pongReceived = false
 				time.Sleep(time.Minute)
@@ -127,7 +128,7 @@ func (irc *IRC) RecvData() {
 		_, err := irc.socket.Read(readBuffer)
 
 		if err != nil {
-			fmt.Println("Error, unable to receive data.")
+			log.Println("Error, unable to receive data.")
 			irc.connected = false
 			return
 		}
@@ -142,7 +143,7 @@ func (irc *IRC) RecvData() {
 	}
 
 	completedBuffer = strings.Trim(completedBuffer, "\r\n")
-	fmt.Printf("Received: %s\n", completedBuffer)
+	log.Printf("Received: %s\n", completedBuffer)
 	irc.HandleIRCEvents(completedBuffer)
 }
 
@@ -157,11 +158,11 @@ func (irc *IRC) ConnectToServer() bool {
 		return false
 	}
 
-	fmt.Printf("Attempting connection to %s..\n", irc.server)
+	log.Printf("Attempting connection to %s..\n", irc.server)
 	irc.socket, err = net.Dial("tcp", irc.server)
 
 	if err != nil {
-		fmt.Println("Error, unable to connect.")
+		log.Println("Error, unable to connect.")
 		return false
 	}
 
@@ -171,19 +172,19 @@ func (irc *IRC) ConnectToServer() bool {
 
 func (irc *IRC) HandleIRCEvents(ircBuffer string) {
 	if irc.ProtocolDebug {
-		fmt.Printf("ircBuffer size: %d\n", len(ircBuffer))
-		fmt.Printf("ircBuffer = %s\n", ircBuffer)
+		log.Printf("ircBuffer size: %d\n", len(ircBuffer))
+		log.Printf("ircBuffer = %s\n", ircBuffer)
 	}
 
 	r, err := regexp.Compile(`^(?:[:](\S+) )?(\S+)(?: ([^:].+?))?(?: [:](.+))?$`)
 	if err != nil {
-		fmt.Println("Error, regex string wasn't able to compile")
+		log.Println("Error, regex string wasn't able to compile")
 		return
 	}
 
 	matches := r.FindAllStringSubmatch(ircBuffer, -1)
 	if len(matches) == 0 {
-		fmt.Printf("No match found for: %s\n", ircBuffer)
+		log.Printf("No match found for: %s\n", ircBuffer)
 		return
 	}
 
@@ -200,7 +201,7 @@ func (irc *IRC) HandleIRCEvents(ircBuffer string) {
 			irc.WriteData("NICK %s\r\n", irc.nickname)
 		case "302":
 			irc.externalIP = strings.Split(match[4], "@")[1]
-			fmt.Printf("Received external IP: %s\n", irc.externalIP)
+			log.Printf("Received external IP: %s\n", irc.externalIP)
 		case "PING":
 			irc.WriteData("%s\r\n", strings.Replace(match[0], "PING", "PONG", 1))
 		case "PONG":
@@ -253,8 +254,6 @@ func (irc *IRC) HandleIRCEvents(ircBuffer string) {
 			message := strings.Split(msgBuf, " ")
 			irc.msg = Message{nickname, host, destination, msgBuf}
 
-			fmt.Println(destination)
-
 			if !strings.Contains(destination, "#") {
 				return;
 			}
@@ -289,7 +288,7 @@ func (irc *IRC) HandleIRCEvents(ircBuffer string) {
 				}
 
 				irc.SendToChannel(destination, "A PUG has been started on map %s, type !join to join the pug", p.GetMap())
-				fmt.Printf("Assigned server ID, region %s to pug ID %d with channel %s\n", cs.GetRegion(), p.GetPugID(), destination)
+				log.Printf("Assigned server ID, region %s to pug ID %d with channel %s\n", cs.GetRegion(), p.GetPugID(), destination)
 				cs.rc.WriteData("changelevel %s", p.GetMap())
 				cs.serverPassword = p.GenerateRandomPassword("pug")
 				cs.rc.WriteData("sv_password %s", cs.serverPassword)
@@ -364,7 +363,7 @@ func (irc *IRC) HandleIRCEvents(ircBuffer string) {
 					cs, success := GetServerByChannel(destination)
 					
 					if !success {
-						fmt.Println("Unable to find server")
+						log.Println("Unable to find server")
 						return
 					}
 

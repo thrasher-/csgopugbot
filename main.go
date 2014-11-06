@@ -1,24 +1,24 @@
 package main 
 
 import (
-	"fmt"
 	"time"
+	"log"
 	"strings"
 )
 
 func main() {
-	fmt.Println("Loading config file config.json..")
+	log.Println("Loading config file config.json..")
 	config, err := ReadConfig("config.json")
 
 	if err != nil {
-		fmt.Println("Fatal error opening config.json file. Error: ", err)
+		log.Println("Fatal error opening config.json file. Error: ", err)
 		return;
 	}
 
-	fmt.Println("Config file loaded.")
+	log.Println("Config file loaded.")
 	SetAllowedMaps(strings.Split(config.CSMaps, ","))
-	fmt.Println("Set available maps: " + GetValidMaps())
-	fmt.Println("Testing connectivity to CS server(s)..")
+	log.Println("Set available maps: " + GetValidMaps())
+	log.Println("Testing connectivity to CS server(s)..")
 	
 	if !SetupAndTestCSServers(config.CSServers) {
 		return;
@@ -42,7 +42,7 @@ func main() {
 		false, //joined channel
 	}
 
-	fmt.Println("Starting main IRC loop..")
+	log.Println("Starting main IRC loop..")
 	irc.IRCLoop()
 }
 

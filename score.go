@@ -1,6 +1,6 @@
 package main
 
-import "fmt"
+import "log"
 
 type Player struct {
 	steamID, username, team string
@@ -47,7 +47,7 @@ func (sm *ScoreManager) AddPlayer(steamID, username string) {
 	player.bombPlanted = 0
 	player.targetBombed = 0
 	sm.players = append(sm.players, player)
-	fmt.Printf("Added player: %s %s\n", steamID, username)
+	log.Printf("Added player: %s %s\n", steamID, username)
 }
 
 func (sm *ScoreManager) RemovePlayer(steamID, username string) {
@@ -58,7 +58,7 @@ func (sm *ScoreManager) RemovePlayer(steamID, username string) {
 	for i := range sm.players {
 		if sm.players[i].steamID == steamID && steamID != "BOT" || sm.players[i].steamID == "BOT" && sm.players[i].username == username{
 			sm.players = append(sm.players[:i], sm.players[i+1:]...)
-			fmt.Printf("Removed player: %s %s\n", steamID, username)
+			log.Printf("Removed player: %s %s\n", steamID, username)
 			return
 		}
 	}
@@ -136,18 +136,18 @@ func (sm *ScoreManager) ResetPlayerStats() {
 
 func (sm *ScoreManager) EnumerateStats() {
 	for i := range sm.players {
-		fmt.Printf("==============================================================\n")
-		fmt.Printf("Player %s (%s)\n", sm.players[i].username, sm.players[i].steamID)
-		fmt.Printf("Kills: %d\n", sm.players[i].kills)
-		fmt.Printf("Deaths: %d\n", sm.players[i].deaths)
-		fmt.Printf("Assists: %d\n", sm.players[i].assists)
-		fmt.Printf("Bombs planted: %d\n", sm.players[i].bombPlanted)
-		fmt.Printf("Bombs dropped: %d\n", sm.players[i].bombDropped)
-		fmt.Printf("Bombs picked up: %d\n", sm.players[i].bombPickedUp)
-		fmt.Printf("Target bombed: %d\n", sm.players[i].targetBombed)
-		fmt.Printf("Bombs defused: %d\n", sm.players[i].bombDefused)
-		fmt.Printf("Bombs defuse attempts with kit %d\n", sm.players[i].bombDefuseAttemptWithKit)
-		fmt.Printf("Bombs defuse attempts without kit %d\n", sm.players[i].bombDefuseAttemptWithoutKit)
+		log.Printf("==============================================================\n")
+		log.Printf("Player %s (%s)\n", sm.players[i].username, sm.players[i].steamID)
+		log.Printf("Kills: %d\n", sm.players[i].kills)
+		log.Printf("Deaths: %d\n", sm.players[i].deaths)
+		log.Printf("Assists: %d\n", sm.players[i].assists)
+		log.Printf("Bombs planted: %d\n", sm.players[i].bombPlanted)
+		log.Printf("Bombs dropped: %d\n", sm.players[i].bombDropped)
+		log.Printf("Bombs picked up: %d\n", sm.players[i].bombPickedUp)
+		log.Printf("Target bombed: %d\n", sm.players[i].targetBombed)
+		log.Printf("Bombs defused: %d\n", sm.players[i].bombDefused)
+		log.Printf("Bombs defuse attempts with kit %d\n", sm.players[i].bombDefuseAttemptWithKit)
+		log.Printf("Bombs defuse attempts without kit %d\n", sm.players[i].bombDefuseAttemptWithoutKit)
 	}
 }
 

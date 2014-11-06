@@ -1,7 +1,7 @@
 package main
 
 import (
-	"fmt"
+	"log"
 	"strings"
 	"strconv"
 	"math/rand"
@@ -211,7 +211,7 @@ func (p *PUG) StartPug() {
 	}
 	
 	if (len(p.mapName) > 0) && IsValidMap(p.mapName) {
-		fmt.Printf("Pug map is %s", p.mapName)
+		log.Printf("Pug map is %s", p.mapName)
 	} else {
 		p.mapName = "de_dust2"
 	}

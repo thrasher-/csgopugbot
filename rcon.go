@@ -7,6 +7,7 @@ import (
 	"io"
 	"net"
 	"sync"
+	"log"
 	"fmt"
 	"sync/atomic"
 	"time"
@@ -41,7 +42,7 @@ var (
 
 func (r *RemoteConsole) WriteData(data string, v ...interface{}) (requestId int, err error){
 	buffer := fmt.Sprintf(data, v...)
-	fmt.Printf("Sent(RCON): %s\n", buffer)
+	log.Printf("Sent(RCON): %s\n", buffer)
 	return r.writeCmd(SERVERDATA_EXECCOMMAND, buffer)
 }
 
