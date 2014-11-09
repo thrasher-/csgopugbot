@@ -17,6 +17,7 @@ func main() {
 
 	log.Println("Config file loaded.")
 	SetAllowedMaps(strings.Split(config.CSMaps, ","))
+	SetTeamName(strings.Split(config.TeamNames, ","))
 	log.Println("Set available maps: " + GetValidMaps())
 	log.Println("Testing connectivity to CS server(s)..")
 	

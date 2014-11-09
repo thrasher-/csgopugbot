@@ -13,6 +13,7 @@ type Config struct {
 	IRCUsername string
 	CSServers []CSServers
 	CSMaps string
+	TeamNames string
 	CSDefaultPugAdminPassword string
 }
 
