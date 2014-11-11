@@ -25,5 +25,6 @@
       "Region": "Sydney"
     }
   ],
-  "csMaps": "de_dust2,de_inferno,de_nuke,de_train,de_mirage,de_overpass,de_cobblestone"
+  "csMaps": "de_dust2,de_inferno,de_nuke,de_train,de_mirage,de_overpass,de_cobblestone",
+  "teamNames": "Ninjas in Pyjamas,VeryGames,ESC Gaming,Western Wolves,Virtus.Pro,Fnatic,Lemondogs,Quantic Gaming,k1ck,n!faculty,fm.TOXiC,Team Dynamic,Hawks,Mousesports.de,Hawks,Absolute Legends,Anexis,Na’Vi,Curse.NA,LDLC,Epsilon"
 }

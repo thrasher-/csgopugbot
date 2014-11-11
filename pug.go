@@ -232,31 +232,21 @@ func (p *PUG) EndPug() {
 	p.ircChannel = ""
 }
 
-//Shazbot's Playground
-
 func SetTeamName(names []string) {
-	
 	teamName = names
-	
 	teamNameCT, teamNameT = teamName[rand.Intn(len(teamName))], teamName[rand.Intn(len(teamName))] 
-
 	for teamNameCT == teamNameT {
-
 		teamNameT = teamName[rand.Intn(len(teamName))]
 
 	}	
-
 	log.Println("The set teams are: ", teamNameCT, " & ", teamNameT)
 }
 
-
 func GetTeamNameCT() string {
-	log.Println(teamNameCT)	
 	return teamNameCT
 }
 
 func GetTeamNameT() string {
-	log.Println(teamNameT)
 	return teamNameT
 }
 
