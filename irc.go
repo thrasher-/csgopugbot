@@ -289,9 +289,9 @@ func (irc *IRC) HandleIRCEvents(ircBuffer string) {
 
 				irc.SendToChannel(destination, "A PUG has been started on map %s, type !join to join the pug", p.GetMap())
 				log.Printf("Assigned server ID, region %s to pug ID %d with channel %s\n", cs.GetRegion(), p.GetPugID(), destination)
-				cs.rc.WriteData("changelevel %s", p.GetMap())
+				cs.WriteData("changelevel %s", p.GetMap())
 				cs.serverPassword = p.GenerateRandomPassword("pug")
-				cs.rc.WriteData("sv_password %s", cs.serverPassword)
+				cs.WriteData("sv_password %s", cs.serverPassword)
 				cs.pugAdminPassword = p.GenerateRandomPassword("admin")
 				p.StartPug()
 				p.SetIRCChannel(destination)
@@ -312,6 +312,7 @@ func (irc *IRC) HandleIRCEvents(ircBuffer string) {
 						players := pug.GetPlayers()
 						irc.SendToChannel(destination, "The teams are as follows. Terrorists: %s Counter-Terrorists: %s", strings.Join(players[0:5], " "), strings.Join(players[5:10], " "))
 						cs, _ := GetServerByChannel(destination)
+						cs.WriteData("mp_maxrounds 999")
 
 						for i := range players {
 							if players[i] == pug.GetAdmin() {
@@ -368,7 +369,7 @@ func (irc *IRC) HandleIRCEvents(ircBuffer string) {
 					}
 
 					s := strings.Join(message[1:], " ")
-					cs.rc.WriteData("say [IRC] %s", s)
+					cs.WriteData("say [IRC] %s", s)
 					irc.SendToChannel(destination, "Sent message to CS server.")
 				}
 			}

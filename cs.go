@@ -4,6 +4,7 @@ import (
 	"errors"
 	"net"
 	"log"
+	"fmt"
 	"strings"
 	"strconv"
 	"time"
@@ -160,8 +161,30 @@ func (cs *CS) StartUDPServer() bool {
 func (cs *CS) EnableLogging() {
 	// to-do: check if cs server IP is private and use internal ip, otherwise use external ip
 	port, _ := strconv.Atoi(strings.Split(cs.listenAddress, ":")[1]) 
-	cs.rc.WriteData("logaddress_add %s:%d", cs.localIP, port)
-	cs.rc.WriteData("log on")
+	cs.WriteData("logaddress_add %s:%d", cs.localIP, port)
+	cs.WriteData("log on")
+}
+
+func (cs *CS) WriteData(data string, v ...interface{}) (){
+	buffer := fmt.Sprintf(data, v...)
+	_, err := cs.rc.writeCmd(SERVERDATA_EXECCOMMAND, buffer)
+
+	if err != nil {
+		log.Println(err)
+		cs.rc.Close()
+		for {
+			success := cs.ConnectToRcon()
+			if !success {
+				log.Printf("Unable to reconnect to RCON: %s. Trying again in 1 second.\n", cs.serverIP)
+				time.Sleep(time.Second * 1)
+			} else {
+				log.Printf("Restablished connection to server RCON %s.\n", cs.serverIP)
+				cs.WriteData(data, v)
+				return
+			}
+		}
+	}
+	log.Printf("Sent(RCON): %s\n", buffer)
 }
 
 func (cs *CS) ConnectToRcon() bool  {
@@ -254,6 +277,10 @@ func (cs *CS) HandleCSBuffer(csBuffer []string) {
 		}
 	}
 
+	if len(csBuffer) <= 5 {
+		return
+	}
+
 	if (csBuffer[5] == "entered" && cs.InUse) {
 		player,_,steamID,_ := GetPlayerInfo(csBuffer[4])
 		irc.SendToChannel(cs.ircChannel, "%s (%s) has entered the game.", player, steamID)
@@ -291,10 +318,10 @@ func (cs *CS) HandleCSBuffer(csBuffer []string) {
 				cs.sm.EnumerateStats()
 				cs.sm.AddEventStatsAll(ROUND_FINISHED)
 				if cs.sm.SecondHalfStarted() {
-					cs.rc.WriteData("say			CT Score (%d)  			T Score (%d)		", cs.sm.GetCTScore() + cs.sm.GetFirstHalfT(), cs.sm.GetTScore() + cs.sm.GetFirstHalfCT())
+					cs.WriteData("say			CT Score (%d)  			T Score (%d)		", cs.sm.GetCTScore() + cs.sm.GetFirstHalfT(), cs.sm.GetTScore() + cs.sm.GetFirstHalfCT())
 					irc.SendToChannel(cs.ircChannel, "			CT Score (%d)  			T Score (%d)		", cs.sm.GetCTScore() + cs.sm.GetFirstHalfT(), cs.sm.GetTScore() + cs.sm.GetFirstHalfCT())
 				} else {
-					cs.rc.WriteData("say			CT Score (%d)  			T Score (%d)		", cs.sm.GetCTScore(), cs.sm.GetTScore())
+					cs.WriteData("say			CT Score (%d)  			T Score (%d)		", cs.sm.GetCTScore(), cs.sm.GetTScore())
 					irc.SendToChannel(cs.ircChannel, "			CT Score (%d)  			T Score (%d)		", cs.sm.GetCTScore(), cs.sm.GetTScore())
 				}
 				irc.SendToChannel(cs.ircChannel, "******************** ROUND ENDED ********************")
@@ -323,9 +350,9 @@ func (cs *CS) HandleCSBuffer(csBuffer []string) {
 			if cs.sm.GetCTScore() + cs.sm.GetTScore() == 15 {
 				irc.SendToChannel(cs.ircChannel, "			CT Score (%d)  			T Score (%d)		", cs.sm.GetCTScore(), cs.sm.GetTScore())
 				irc.SendToChannel(cs.ircChannel, "*** The first half has been completed.")
-				cs.rc.WriteData("say The first half has been completed! Type !lo3 to commence second half.")
-				cs.rc.WriteData("say			CT Score (%d)  			T Score (%d)		", cs.sm.GetCTScore(), cs.sm.GetTScore())
-				cs.rc.WriteData("mp_swapteams")
+				cs.WriteData("say The first half has been completed! Type !lo3 to commence second half.")
+				cs.WriteData("say			CT Score (%d)  			T Score (%d)		", cs.sm.GetCTScore(), cs.sm.GetTScore())
+				cs.WriteData("mp_maxrounds 999")
 				cs.sm.PreservePlayerStatsFirstHalf()
 				cs.sm.ResetPlayerStats()
 				cs.sm.SetFirstHalfT(cs.sm.GetTScore())
@@ -338,15 +365,15 @@ func (cs *CS) HandleCSBuffer(csBuffer []string) {
 		if cs.sm.SecondHalfStarted() {
 			if cs.sm.GetCTScore() + cs.sm.GetFirstHalfT() == 16 {
 				irc.SendToChannel(cs.ircChannel, "MATCH COMPLETED SUCCESSFULLY. The score was %d - %d", cs.sm.GetCTScore() + cs.sm.GetFirstHalfT(), cs.sm.GetTScore() + cs.sm.GetFirstHalfCT())
-				cs.rc.WriteData("say MATCH COMPLETED SUCCESSFULLY. The Score was %d - %d", cs.sm.GetCTScore() + cs.sm.GetFirstHalfT(), cs.sm.GetTScore() + cs.sm.GetFirstHalfCT())
+				cs.WriteData("say MATCH COMPLETED SUCCESSFULLY. The Score was %d - %d", cs.sm.GetCTScore() + cs.sm.GetFirstHalfT(), cs.sm.GetTScore() + cs.sm.GetFirstHalfCT())
 				cs.sm.SetMatchCompleted(true)
 			} else if cs.sm.GetCTScore() + cs.sm.GetFirstHalfT() == 15 {
 				irc.SendToChannel(cs.ircChannel, "MATCH COMPLETED SUCCESSFULLY. The match was a draw.")
-				cs.rc.WriteData("say MATCH COMPLETED SUCCESSFULLY. The match was a draw.")
+				cs.WriteData("say MATCH COMPLETED SUCCESSFULLY. The match was a draw.")
 				cs.sm.SetMatchCompleted(true)
 			} else if cs.sm.GetTScore() + cs.sm.GetFirstHalfCT()  == 16 {
 				irc.SendToChannel(cs.ircChannel, "MATCH COMPLETED SUCCESSFULLY. The score was %d - %d", cs.sm.GetTScore() + cs.sm.GetFirstHalfCT(), cs.sm.GetCTScore() + cs.sm.GetFirstHalfT())
-				cs.rc.WriteData("say MATCH COMPLETED SUCCESSFULLY. The Score was %d - %d", cs.sm.GetTScore() + cs.sm.GetFirstHalfCT(), cs.sm.GetCTScore() + cs.sm.GetFirstHalfT())
+				cs.WriteData("say MATCH COMPLETED SUCCESSFULLY. The Score was %d - %d", cs.sm.GetTScore() + cs.sm.GetFirstHalfCT(), cs.sm.GetCTScore() + cs.sm.GetFirstHalfT())
 				cs.sm.SetMatchCompleted(true)
 			}
 
@@ -357,10 +384,11 @@ func (cs *CS) HandleCSBuffer(csBuffer []string) {
 				cs.sm.AddEventStatsAll(MATCH_FINISHED)
 				cs.sm.SaveMatchData()
 				cs.sm.Reset()
-				cs.rc.WriteData("_restart") // kick all clients and set pw to a temp one
-				cs.rc.WriteData("sv_password %s", pug.GenerateRandomPassword("temp"))
-				cs.SetInUseStatus(false)
+				time.Sleep(time.Second * 5)
+				cs.WriteData("_restart") // kick all clients and set pw to a temp one
 				irc.SendToChannel(cs.ircChannel, "The PUG has completed, type !pug <map> to start a new one!")
+				cs.WriteData("sv_password %s", pug.GenerateRandomPassword("temp"))
+				cs.SetInUseStatus(false)	
 				cs.SetIRCChannel("")
 			}
 		}
@@ -376,7 +404,7 @@ func (cs *CS) HandleCSBuffer(csBuffer []string) {
 				password := msg[1];
 				log.Printf("IN-GAME AUTH request: comparing '%s' to '%s'\n", password, cs.pugAdminPassword)
 				if (password == cs.pugAdminPassword) {
-					cs.rc.WriteData("say PUG admin rights has been granted to %s", player)
+					cs.WriteData("say PUG admin rights has been granted to %s", player)
 					irc.SendToChannel(cs.ircChannel, "PUG admin rights has been granted to %s", player)
 					cs.authSteamID = steamID
 					return;
@@ -396,32 +424,34 @@ func (cs *CS) HandleCSBuffer(csBuffer []string) {
 				cs.sm.ResetRoundCounter()
 				cs.sm.SetFirstHalfStarted(true)
 			} else if cs.sm.FirstHalfStarted() && cs.sm.GetFirstHalfT() + cs.sm.GetFirstHalfCT() < 15 {
-				cs.rc.WriteData("say First half has already commenced. If you wish to cancel the first half, please type !cancelhalf.")
+				cs.WriteData("say First half has already commenced. If you wish to cancel the first half, please type !cancelhalf.")
 				return;
 			} else if cs.sm.FirstHalfStarted() && cs.sm.GetFirstHalfT() + cs.sm.GetFirstHalfCT() == 15 {
 				cs.sm.SetSecondHalfStarted(true)
-				cs.rc.WriteData("say The second half has begun!")
+				cs.WriteData("say The second half has begun!")
 				irc.SendToChannel(cs.ircChannel, "The second half has begun!")
 			}
 			if (!cs.RelayGameEvents) {
 				cs.RelayGameEvents = true
 				log.Println("Game event relaying enabled.")
 			}
-			cs.rc.WriteData("say Going Live on 1 restart..")
-			cs.rc.WriteData("mp_restartgame 3")
-			cs.rc.WriteData("say LIVE! LIVE! LIVE! Good luck and have fun")
+			cs.WriteData("mp_maxrounds 30")
+			cs.WriteData("say Going Live on 1 restart..")
+			cs.WriteData("mp_warmup_end")
+			cs.WriteData("mp_restartgame 1")
+			cs.WriteData("say LIVE! LIVE! LIVE! Good luck and have fun")
 			irc.SendToChannel(cs.ircChannel, "*** MATCH HAS GONE LIVE.")
 			return;
 		} else if (msg[0] == "!request") {
-			cs.rc.WriteData("say Requesting for players on IRC.")
+			cs.WriteData("say Requesting for players on IRC.")
 			irc.SendToChannel(cs.ircChannel, "Need player! To join, use the connect string: connect %s; password %s", cs.serverIP, cs.serverPassword)
 			return;
 		} else if (msg[0] == "!restart") {
 			if cs.sm.FirstHalfStarted() || cs.sm.SecondHalfStarted() {
-				cs.rc.WriteData("say You are unable to restart the round once the game has gone live.")
+				cs.WriteData("say You are unable to restart the round once the game has gone live.")
 				return
 			}
-			cs.rc.WriteData("mp_restartgame 1")
+			cs.WriteData("mp_restartgame 1")
 			return;
 		} else if (msg[0] == "!cancelhalf") {
 			if cs.sm.FirstHalfStarted() && !cs.sm.SecondHalfStarted() {
@@ -429,7 +459,8 @@ func (cs *CS) HandleCSBuffer(csBuffer []string) {
 				cs.sm.SetFirstHalfStarted(false)
 				cs.sm.ResetPlayerStats()
 				cs.RelayGameEvents = false
-				cs.rc.WriteData("say First half has been cancelled. Please type !lo3 once all players are ready.")
+				cs.WriteData("mp_maxrounds 999")
+				cs.WriteData("say First half has been cancelled. Please type !lo3 once all players are ready.")
 				irc.SendToChannel(cs.ircChannel, "*** First half has been cancelled.")
 				return
 			} else if cs.sm.FirstHalfStarted() && cs.sm.SecondHalfStarted() {
@@ -437,30 +468,31 @@ func (cs *CS) HandleCSBuffer(csBuffer []string) {
 				cs.sm.SetSecondHalfStarted(false)
 				cs.sm.ResetPlayerStats()
 				cs.RelayGameEvents = false
-				cs.rc.WriteData("say Second half has been cancelled. Please type !lo3 once all players are ready.")
+				cs.WriteData("mp_maxrounds 999")
+				cs.WriteData("say Second half has been cancelled. Please type !lo3 once all players are ready.")
 				irc.SendToChannel(cs.ircChannel, "*** Second half has been cancelled.")
 				return
 			}
 		} else if (msg[0] == "!map" && len(msg) > 1) {
 			if cs.sm.FirstHalfStarted() || cs.sm.SecondHalfStarted() {
-				cs.rc.WriteData("say You are unable to change the map once the game has gone live.")
+				cs.WriteData("say You are unable to change the map once the game has gone live.")
 				return
 			}
 
 			mapName := msg[1];
 			if !IsValidMap(mapName) {
-				cs.rc.WriteData("Invalid map selection. Please select a map from the following: %s ", GetValidMaps())
+				cs.WriteData("Invalid map selection. Please select a map from the following: %s ", GetValidMaps())
 				return
 			}
 
-			cs.rc.WriteData("say Changing map to '%s'.", mapName)
-			cs.rc.WriteData("changelevel %s", mapName)
+			cs.WriteData("say Changing map to '%s'.", mapName)
+			cs.WriteData("changelevel %s", mapName)
 			irc.SendToChannel(cs.ircChannel, "PUG admin changed level to %s", mapName)
 			return;
 		} else if (msg[0] == "!irc") {
 			if (len(msg) > 1) {
 				s := strings.Join(msg[1:], " ")
-				cs.rc.WriteData("say Sending message to IRC: %s.", s)
+				cs.WriteData("say Sending message to IRC: %s.", s)
 				irc.SendToChannel(cs.ircChannel, "[CS]: %s", s)
 				return;
 			}
