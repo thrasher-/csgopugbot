@@ -40,6 +40,6 @@ func ReadConfig(path string) (Config, error) {
 	}
 
 	cfg := Config{}
-	json.Unmarshal(file, &cfg)
-	return cfg, nil
+	err = json.Unmarshal(file, &cfg)
+	return cfg, err
 }
